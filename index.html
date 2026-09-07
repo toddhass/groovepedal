@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-kit -->
+  <!-- pages-redeploy 2026-09-07-publish-sync -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -167,6 +167,8 @@
       </div>
       <p class="label">Percussion</p>
       <button class="inst" id="cowbell" type="button">COWBELL</button>
+      <button class="inst" id="midi" type="button">MIDI CONNECT</button>
+      <p class="hint" id="midihelp"></p>
       <p class="label">Band</p>
       <div class="band-list" id="ensembles"></div>
       <p class="label">Instruments</p>
@@ -488,16 +490,18 @@ PracticeTrack.prototype.stopSrc=function(){
   try{this.src.disconnect();}catch(e){}
   this.src=null;
 };
-PracticeTrack.prototype.play=function(){
+PracticeTrack.prototype.play=function(when){
   this.wantPlay=true;
   if(!this.buffer)return;
   this.stopSrc();
   var src=this.ctx.createBufferSource();
-  src.buffer=this.buffer; src.loop=true; src.connect(this.split); src.start(0);
+  src.buffer=this.buffer; src.loop=true; src.connect(this.split);
+  var t=Math.max(when||this.ctx.currentTime, this.ctx.currentTime);
+  src.start(t);
   this.src=src;
 };
 PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
-PracticeTrack.prototype.rewind=function(){ if(this.buffer) this.play(); };
+PracticeTrack.prototype.rewind=function(){ if(this.wantPlay) this.play(); };
 PracticeTrack.prototype.apply=function(){
   var t=this.ctx.currentTime;
   if(this.stems){
@@ -518,7 +522,7 @@ PracticeTrack.prototype.apply=function(){
   this.cutB.gain.setTargetAtTime(this.vocalsOn?0:-28,t,.03);
   this.cutC.gain.setTargetAtTime(this.vocalsOn?0:-20,t,.03);
 };
-PracticeTrack.prototype.load=function(file){
+PracticeTrack.prototype.load=function(file, onReady){
   var self=this;
   this.stopSrc(); this.stems=null; this.buffer=null;
   this.name=file.name.replace(/\.[^.]+$/,"");
@@ -530,7 +534,8 @@ PracticeTrack.prototype.load=function(file){
       self.buffer=stereo;
     } else self.buffer=buf;
     self.apply();
-    if(self.wantPlay) self.play();
+    if(onReady) onReady();
+    else if(self.wantPlay) self.play();
   });
 };
 PracticeTrack.prototype.setStems=function(stems){
@@ -667,9 +672,11 @@ Engine.prototype.apply=function(){
 };
 Engine.prototype.start=function(){
   if(!this.song)return;
-  this.unlock();this.playing=true;this.step=0;this.inFill=false;this.clock=false;this.begin();
-  if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
-  if(this.track)this.track.play();
+  this.unlock();this.playing=true;this.partIndex=0;this.step=0;this.inFill=false;this.fillQ=false;this.nextQ=false;this.clock=false;
+  this.begin();
+  if(!this.track||!this.track.buffer){
+    if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
+  }
   this.emit();
 };
 Engine.prototype.stop=function(){this.playing=false;this.clock=false;clearInterval(this.timer);if(this.track)this.track.pause();this.emit();};
@@ -678,7 +685,8 @@ Engine.prototype.queueFill=function(){this.fillQ=true;this.emit();};
 Engine.prototype.queueNext=function(){this.nextQ=true;this.emit();};
 Engine.prototype.restart=function(){
   this.partIndex=0;this.step=0;this.inFill=false;
-  if(this.track){this.track.rewind();if(this.playing)this.track.play();}
+  if(this.playing) this.lockTrack();
+  else if(this.track) this.track.pause();
   this.emit();
 };
 Engine.prototype.queueAccent=function(){this.accentQ=true;this.emit();};
@@ -728,14 +736,43 @@ Engine.prototype.setCowbell=function(on){
   this.cowbellOn=on;
   this.emit();
 };
+var GM={35:"kick",36:"kick",37:"rim",38:"snare",39:"clap",40:"snare",41:"floor",43:"floor",42:"hat",44:"pedalHat",46:"openHat",45:"tom",47:"tom",48:"highTom",50:"highTom",49:"crash",57:"crash",51:"ride",53:"ride",55:"splash",52:"china",56:"cowbell"};
+Engine.prototype.handleMidi=function(data){
+  if(!data||!data.length)return;
+  var st=data[0], d1=data[1]||0, d2=data[2]||0;
+  if(st===0xfa||st===0xfb){ this.start(); return; }
+  if(st===0xfc){ this.stop(); return; }
+  var cmd=st&0xf0;
+  if(cmd===0x90 && d2>0){
+    var voice=GM[d1];
+    if(voice){ this.unlock(); if(this.synth&&this.ctx) this.synth.trig(voice, this.ctx.currentTime, Math.min(1.3,d2/100)); return; }
+    if(d1===24){ this.toggle(); return; }
+    if(d1===25){ this.queueFill(); return; }
+    if(d1===26){ this.queueNext(); return; }
+    if(d1===27){ this.restart(); return; }
+    if(d1===28){ this.queueAccent(); return; }
+  }
+  if(cmd===0xb0 && d2>=64){
+    if(d1===64||d1===80) this.toggle();
+    else if(d1===65||d1===81) this.queueFill();
+    else if(d1===66||d1===82) this.queueNext();
+    else if(d1===67||d1===83) this.queueAccent();
+  }
+  if(cmd===0xc0) this.queueNext();
+};
 Engine.prototype.loadTrack=function(file){
   this.unlock();
   this.splitToken=(this.splitToken||0)+1;
   if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
   this.practiceFile=file;
-  if(this.track)this.track.load(file);
+  var self=this;
+  if(this.track)this.track.load(file, function(){
+    self.trackAiMessage="Loaded. Hit START — song and drums start together.";
+    if(self.playing) self.lockTrack();
+    self.emit();
+  });
   this.trackAi="off";this.trackAiProgress=0;
-  this.trackAiMessage="Preview loaded. Hit START. Tap AI SPLIT only if you need the guitar pulled.";
+  this.trackAiMessage="Decoding…";
   this.emit();
 };
 Engine.prototype.setTrackVocals=function(on){
@@ -784,10 +821,19 @@ Engine.prototype.startSplit=function(file){
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
-  this.clock=true;this.nextT=this.ctx.currentTime+.04;clearInterval(this.timer);
+  this.clock=true;this.nextT=this.ctx.currentTime+.05;
+  if(this.track)this.track.play(this.nextT);
+  clearInterval(this.timer);
   var self=this;
   this.timer=setInterval(function(){self.sched();},25);
   this.sched();
+};
+Engine.prototype.lockTrack=function(){
+  if(!this.playing||!this.ctx||!this.track)return;
+  this.partIndex=0;this.step=0;this.inFill=false;
+  var when=this.ctx.currentTime+.05;
+  this.nextT=when;
+  this.track.play(when);
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
@@ -900,6 +946,27 @@ press($("next"),function(){engine.queueNext();});
 press($("restart"),function(){engine.restart();});
 press($("accent"),function(){engine.queueAccent();});
 press($("cowbell"),function(){engine.setCowbell(!engine.cowbellOn);});
+press($("midi"),function(){
+  engine.unlock();
+  var help=$("midihelp");
+  if(!navigator.requestMIDIAccess){
+    $("midi").textContent="MIDI (USE CHROME OR MIDIWEB)";
+    help.textContent="Safari on iPhone cannot see MIDI. Chrome/Edge on a laptop works. On iPhone open this page in MIDIWeb Browser.";
+    return;
+  }
+  navigator.requestMIDIAccess({sysex:false}).then(function(access){
+    var hook=function(input){ input.onmidimessage=function(ev){ if(ev.data) engine.handleMidi(ev.data); }; };
+    access.inputs.forEach(hook);
+    access.onstatechange=function(){ access.inputs.forEach(hook); };
+    var names=[];
+    access.inputs.forEach(function(input){ if(input.name) names.push(input.name); });
+    $("midi").textContent=names[0] ? "MIDI · "+names[0] : "MIDI — NO DEVICE";
+    help.textContent=names[0] ? "GM pads hit the kit. Footswitch CC64 starts/stops. CC65 fill, CC66 next." : "Plug in a USB or Bluetooth MIDI controller, then tap again.";
+  }).catch(function(){
+    $("midi").textContent="MIDI BLOCKED";
+    help.textContent="MIDI permission was denied.";
+  });
+});
 $("trackfile").addEventListener("change",function(){
   var file=this.files&&this.files[0];
   if(file)engine.loadTrack(file);
