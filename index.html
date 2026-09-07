@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-no-autodemucs -->
+  <!-- pages-redeploy 2026-09-07-vocal-kill -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -428,8 +428,7 @@ var ENSEMBLES=[
 ];
 
 function PracticeTrack(ctx, dest){
-  this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.url=null; this.stems=null;
-  this.el=new Audio(); this.el.loop=true; this.el.preload="auto"; this.el.setAttribute("playsinline","");
+  this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.buffer=null; this.stems=null;
   this.split=ctx.createChannelSplitter(2);
   var midL=ctx.createGain(); midL.gain.value=.5;
   var midR=ctx.createGain(); midR.gain.value=.5;
@@ -437,37 +436,44 @@ function PracticeTrack(ctx, dest){
   var sideL=ctx.createGain(); sideL.gain.value=.5;
   var sideR=ctx.createGain(); sideR.gain.value=-.5;
   this.guitarGain=ctx.createGain();
-  var midLow=ctx.createBiquadFilter(); midLow.type="lowpass"; midLow.frequency.value=160;
-  var midHigh=ctx.createBiquadFilter(); midHigh.type="highpass"; midHigh.frequency.value=160;
+  var midLow=ctx.createBiquadFilter(); midLow.type="lowpass"; midLow.frequency.value=180;
+  var midHigh=ctx.createBiquadFilter(); midHigh.type="highpass"; midHigh.frequency.value=180;
   this.vocalsGain=ctx.createGain();
   this.body=ctx.createBiquadFilter(); this.body.type="peaking"; this.body.frequency.value=720; this.body.Q.value=.85; this.body.gain.value=0;
   this.air=ctx.createBiquadFilter(); this.air.type="peaking"; this.air.frequency.value=2650; this.air.Q.value=.8; this.air.gain.value=0;
+  this.cutA=ctx.createBiquadFilter(); this.cutA.type="peaking"; this.cutA.frequency.value=900; this.cutA.Q.value=.9; this.cutA.gain.value=0;
+  this.cutB=ctx.createBiquadFilter(); this.cutB.type="peaking"; this.cutB.frequency.value=2200; this.cutB.Q.value=.85; this.cutB.gain.value=0;
+  this.cutC=ctx.createBiquadFilter(); this.cutC.type="peaking"; this.cutC.frequency.value=3800; this.cutC.Q.value=.7; this.cutC.gain.value=0;
   var ls=ctx.createGain(); ls.gain.value=1;
   var rs=ctx.createGain(); rs.gain.value=-1;
   var merge=ctx.createChannelMerger(2);
-  this.out=ctx.createGain(); this.out.gain.value=.82;
+  this.out=ctx.createGain(); this.out.gain.value=.9;
   this.split.connect(midL,0); this.split.connect(midR,1); midL.connect(mid); midR.connect(mid);
   this.split.connect(sideL,0); this.split.connect(sideR,1); sideL.connect(this.guitarGain); sideR.connect(this.guitarGain);
   mid.connect(midLow); mid.connect(midHigh); midHigh.connect(this.vocalsGain); this.vocalsGain.connect(this.body); this.body.connect(this.air);
+  this.guitarGain.connect(this.cutA); this.cutA.connect(this.cutB); this.cutB.connect(this.cutC);
   midLow.connect(merge,0,0); midLow.connect(merge,0,1);
   this.air.connect(merge,0,0); this.air.connect(merge,0,1);
-  this.guitarGain.connect(ls); ls.connect(merge,0,0);
-  this.guitarGain.connect(rs); rs.connect(merge,0,1);
+  this.cutC.connect(ls); ls.connect(merge,0,0);
+  this.cutC.connect(rs); rs.connect(merge,0,1);
   merge.connect(this.out); this.out.connect(dest);
 }
-PracticeTrack.prototype.ensure=function(){
-  if(this.src)return;
-  this.src=this.ctx.createMediaElementSource(this.el);
-  this.src.connect(this.split);
+PracticeTrack.prototype.stopSrc=function(){
+  if(!this.src)return;
+  try{this.src.stop();}catch(e){}
+  try{this.src.disconnect();}catch(e){}
+  this.src=null;
 };
 PracticeTrack.prototype.play=function(){
-  if(!this.name)return;
-  this.ensure();
-  this.el.currentTime=0;
-  this.el.play().catch(function(){});
+  this.wantPlay=true;
+  if(!this.buffer)return;
+  this.stopSrc();
+  var src=this.ctx.createBufferSource();
+  src.buffer=this.buffer; src.loop=true; src.connect(this.split); src.start(0);
+  this.src=src;
 };
-PracticeTrack.prototype.pause=function(){ try{this.el.pause();}catch(e){} };
-PracticeTrack.prototype.rewind=function(){ try{this.el.currentTime=0;}catch(e){} };
+PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
+PracticeTrack.prototype.rewind=function(){ if(this.buffer) this.play(); };
 PracticeTrack.prototype.apply=function(){
   var t=this.ctx.currentTime;
   if(this.stems){
@@ -475,22 +481,33 @@ PracticeTrack.prototype.apply=function(){
     this.guitarGain.gain.setTargetAtTime(1,t,.02);
     this.body.gain.setTargetAtTime(0,t,.02);
     this.air.gain.setTargetAtTime(0,t,.02);
+    this.cutA.gain.setTargetAtTime(0,t,.02);
+    this.cutB.gain.setTargetAtTime(0,t,.02);
+    this.cutC.gain.setTargetAtTime(0,t,.02);
     return;
   }
-  this.vocalsGain.gain.setTargetAtTime(this.vocalsOn?1:.04,t,.03);
+  this.vocalsGain.gain.setTargetAtTime(this.vocalsOn?1:0,t,.03);
   this.guitarGain.gain.setTargetAtTime(this.guitarOn?1:0,t,.03);
-  this.body.gain.setTargetAtTime(this.guitarOn?0:-11,t,.03);
-  this.air.gain.setTargetAtTime(this.guitarOn?0:-9,t,.03);
+  this.body.gain.setTargetAtTime(this.guitarOn?0:-14,t,.03);
+  this.air.gain.setTargetAtTime(this.guitarOn?0:-16,t,.03);
+  this.cutA.gain.setTargetAtTime(this.vocalsOn?0:-22,t,.03);
+  this.cutB.gain.setTargetAtTime(this.vocalsOn?0:-28,t,.03);
+  this.cutC.gain.setTargetAtTime(this.vocalsOn?0:-20,t,.03);
 };
 PracticeTrack.prototype.load=function(file){
-  this.ensure();
-  this.stems=null;
-  if(this.url) URL.revokeObjectURL(this.url);
-  this.url=URL.createObjectURL(file);
-  this.el.src=this.url;
+  var self=this;
+  this.stopSrc(); this.stems=null; this.buffer=null;
   this.name=file.name.replace(/\.[^.]+$/,"");
-  this.el.load();
-  this.apply();
+  file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw.slice(0)); }).then(function(buf){
+    if(buf.numberOfChannels<2){
+      var stereo=self.ctx.createBuffer(2, buf.length, buf.sampleRate);
+      stereo.copyToChannel(buf.getChannelData(0),0);
+      stereo.copyToChannel(buf.getChannelData(0),1);
+      self.buffer=stereo;
+    } else self.buffer=buf;
+    self.apply();
+    if(self.wantPlay) self.play();
+  });
 };
 PracticeTrack.prototype.setStems=function(stems){
   this.stems=stems;
@@ -508,11 +525,11 @@ PracticeTrack.prototype.rebuild=function(){
     for(i=0;i<n;i++){ left[i]+=stem.left[i]||0; right[i]+=stem.right[i]||0; }
   }
   var blob=encodeWav(left,right,44100);
-  var playing=!this.el.paused, t=this.el.currentTime;
-  if(this.url) URL.revokeObjectURL(this.url);
-  this.url=URL.createObjectURL(blob);
-  this.el.src=this.url; this.el.currentTime=t;
-  if(playing)this.el.play().catch(function(){});
+  var self=this, playing=!!this.src;
+  blob.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw.slice(0)); }).then(function(buf){
+    self.buffer=buf;
+    if(playing||self.wantPlay) self.play();
+  });
 };
 function encodeWav(left,right,sr){
   var n=Math.min(left.length,right.length), bytes=44+n*4, buf=new ArrayBuffer(bytes), v=new DataView(buf);
