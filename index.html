@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-lock-2 -->
+  <!-- pages-redeploy 2026-09-07-publish-clock -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -461,18 +461,33 @@ function analyzeTrack(buf, hint){
   var sr=buf.sampleRate, hop=Math.max(64, Math.round(sr/200));
   var n=Math.min(buf.length, Math.floor(sr*24));
   var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-  var env=[], i, j, acc, s;
+  var full=[], bass=[], i, j, s, acc, bacc, lp=0;
+  var rc=1/(2*Math.PI*110), a=(1/sr)/(rc+1/sr);
   for(i=0;i+hop<n;i+=hop){
-    acc=0; for(j=0;j<hop;j++){ s=(L[i+j]+R[i+j])*0.5; acc+=s*s; }
-    env.push(Math.sqrt(acc/hop));
+    acc=0; bacc=0;
+    for(j=0;j<hop;j++){
+      s=(L[i+j]+R[i+j])*0.5;
+      lp+=a*(s-lp);
+      acc+=s*s; bacc+=lp*lp;
+    }
+    full.push(Math.sqrt(acc/hop));
+    bass.push(Math.sqrt(bacc/hop));
   }
-  if(env.length<32) return {bpm:Math.round(hint||120), offset:0};
-  var flux=[]; for(i=1;i<env.length;i++) flux.push(Math.max(0, env[i]-env[i-1]));
+  if(full.length<48) return {bpm:Math.round((hint||120)*1000)/1000, offset:0};
+  var flux=[]; for(i=1;i<full.length;i++) flux.push(Math.max(0, full[i]-full[i-1]));
   var minLag=Math.round(60/180*sr/hop), maxLag=Math.round(60/70*sr/hop);
-  var best=0, bestLag=minLag, lag, c, k;
+  var corr=[], best=0, bestLag=minLag, lag, c, k;
   for(lag=minLag; lag<=maxLag; lag++){
     c=0; for(k=0;k<flux.length-lag;k++) c+=flux[k]*flux[k+lag];
-    if(c>best){best=c;bestLag=lag;}
+    corr[lag]=c; if(c>best){best=c;bestLag=lag;}
+  }
+  if(bestLag>minLag && bestLag<maxLag){
+    var c0=corr[bestLag-1]||0, c1=corr[bestLag]||0, c2=corr[bestLag+1]||0;
+    var den=c0-2*c1+c2;
+    if(Math.abs(den)>1e-12){
+      var delta=0.5*(c0-c2)/den;
+      if(delta>-1&&delta<1) bestLag=bestLag+delta;
+    }
   }
   var bpm=60/(bestLag*hop/sr);
   var cands=[bpm,bpm*2,bpm/2,bpm*1.5,bpm/1.5], pick=bpm, dist=1e9, h=hint||120, v, d;
@@ -480,17 +495,21 @@ function analyzeTrack(buf, hint){
     v=cands[i]; if(v<60||v>200) continue;
     d=Math.abs(v-h); if(d<dist){dist=d;pick=v;}
   }
-  if(Math.abs(pick-h)/h<0.035) bpm=Math.round(h); else bpm=Math.round(Math.min(180,Math.max(60,pick)));
-  var period=(60/bpm)*sr/hop, bestScore=-1, bestOff=0, off, beat, idx, score, search=Math.max(1,Math.floor(period));
+  if(Math.abs(pick-h)/h<0.004) bpm=h;
+  else bpm=Math.round(Math.min(180,Math.max(60,pick))*1000)/1000;
+  var period=(60/bpm)*sr/hop, bestScore=-1e12, bestOff=0, off, beat, idx, score, search=Math.max(1,Math.floor(period)), pos, bv, fv;
   for(off=0; off<search; off++){
     score=0;
-    for(beat=0; beat<8; beat++){
-      idx=Math.round(off+beat*period); if(idx>=env.length) break;
-      score+=env[idx]*(beat%4===0?2.2:1);
+    for(beat=0; beat<16; beat++){
+      idx=Math.round(off+beat*period); if(idx>=bass.length) break;
+      pos=beat%4; bv=bass[idx]||0; fv=full[idx]||0;
+      if(pos===0) score+=bv*4.2+fv*0.25;
+      else if(pos===2) score+=bv*2.4+fv*0.25;
+      else score+=fv*0.7-bv*0.8;
     }
     if(score>bestScore){bestScore=score;bestOff=off;}
   }
-  return {bpm:bpm, offset:Math.max(0, bestOff*hop/sr-0.004)};
+  return {bpm:bpm, offset:Math.max(0, bestOff*hop/sr)};
 }
 function PracticeTrack(ctx, dest){
   this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.buffer=null; this.stems=null;
@@ -537,15 +556,25 @@ PracticeTrack.prototype.play=function(when){
   var src=this.ctx.createBufferSource();
   src.buffer=this.buffer; src.connect(this.split);
   src.playbackRate.value=this.rate||1;
+  var duration=this.buffer.duration;
   var off=Math.max(0, (this.cue||0)+(this.nudge||0));
-  if(off>this.buffer.duration-0.05) off=Math.max(0, this.buffer.duration-0.05);
+  if(off>duration-0.05) off=Math.max(0, duration-0.05);
   var bar=(4*60)/(this.nativeBpm||120);
-  var remain=Math.max(bar, this.buffer.duration-off);
-  var bars=Math.max(1, Math.floor(remain/bar));
-  src.loop=true; src.loopStart=off; src.loopEnd=Math.min(this.buffer.duration-0.001, off+bars*bar);
+  var remain=Math.max(bar, duration-off);
+  var bars=Math.max(1, Math.floor(remain/bar+1e-9));
+  src.loop=true; src.loopStart=off; src.loopEnd=Math.min(duration-0.0005, off+bars*bar);
   if(src.loopEnd<=src.loopStart+0.08) src.loop=false;
-  var t=Math.max(when||this.ctx.currentTime, this.ctx.currentTime);
-  src.start(t, off);
+  var now=this.ctx.currentTime;
+  var target=when==null?now:when;
+  var startAt=target;
+  if(target<now){
+    off+= (now-target)*(this.rate||1);
+    startAt=now;
+    var span=src.loop?src.loopEnd-src.loopStart:duration-src.loopStart;
+    if(span>0 && off>=src.loopEnd) off=src.loopStart+((off-src.loopStart)%span);
+  }
+  if(off>=duration)return;
+  src.start(startAt, off);
   this.src=src;
 };
 PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
@@ -743,10 +772,11 @@ Engine.prototype.restart=function(){
   this.emit();
 };
 Engine.prototype.queueAccent=function(){this.accentQ=true;this.emit();};
-Engine.prototype.setBpm=function(n){
+Engine.prototype.setBpm=function(n, fromTrack){
   var prev=this.bpm;
-  this.bpm=n;
-  if(this.track&&this.track.nativeBpm) this.track.rate=this.bpm/this.track.nativeBpm;
+  n=+n;
+  this.bpm=fromTrack ? Math.round(Math.min(240,Math.max(40,n))*1000)/1000 : Math.round(Math.min(240,Math.max(40,n)));
+  if(this.track&&this.track.nativeBpm) this.track.rate=fromTrack?1:this.bpm/this.track.nativeBpm;
   if(this.track&&this.track.src) this.track.src.playbackRate.value=this.track.rate||1;
   if(this.playing&&this.track&&this.track.buffer&&prev){
     var six=60/this.bpm/4;
@@ -830,8 +860,8 @@ Engine.prototype.loadTrack=function(file){
   this.practiceFile=file;
   var self=this;
   if(this.track)this.track.load(file, this.song&&this.song.bpm||this.bpm, function(a){
-    if(a&&a.bpm) self.setBpm(a.bpm);
-    self.trackAiMessage="Locked at "+self.bpm+" BPM. START hits beat 1 together.";
+    if(a&&a.bpm) self.setBpm(a.bpm, true);
+    self.trackAiMessage="Locked at "+(Math.round(self.bpm*10)/10)+" BPM — kick on beat 1.";
     if(self.playing) self.lockTrack();
     self.emit();
   });
@@ -893,7 +923,7 @@ Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
   this.clock=true;
-  this.origin=this.ctx.currentTime+.08;
+  this.origin=this.ctx.currentTime+.1;
   this.clockStep=0;
   this.nextT=this.origin;
   if(this.track)this.track.play(this.origin);
@@ -905,19 +935,13 @@ Engine.prototype.begin=function(){
 Engine.prototype.lockTrack=function(){
   if(!this.playing||!this.ctx||!this.track)return;
   this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;
-  var when=this.ctx.currentTime+.08;
+  var when=this.ctx.currentTime+.1;
   this.origin=when; this.nextT=when;
   this.track.play(when);
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
-  var locked=this.track&&this.track.buffer;
-  while(this.nextT<this.ctx.currentTime+.12){
-    if(locked && this.nextT<this.ctx.currentTime-0.05){
-      var six=60/(this.bpm||120)/4;
-      this.clockStep=Math.max(0, Math.ceil((this.ctx.currentTime-this.origin)/six));
-      this.nextT=this.origin+this.clockStep*six;
-    }
+  while(this.nextT<this.ctx.currentTime+.25){
     this.schedStep(this.nextT);this.advance();
   }
 };
@@ -996,10 +1020,10 @@ function paint(st){
   $("artist").textContent=song.artist;
   $("groove").textContent=LABELS[st.feel]||st.feel||song.feel;
   $("part").textContent=st.partName;
-  $("tempo").textContent=st.bpm+" BPM";
+  $("tempo").textContent=(Math.round(st.bpm*10)/10)+" BPM";
   $("status").textContent=!st.playing?"Stopped":!st.ready?"Tap for sound":st.inFill?"Fill":"Playing";
   $("start").textContent=st.playing&&st.ready?"■ STOP":st.playing?"TAP FOR SOUND":"▶ START";
-  $("bpm").value=st.bpm; $("bpmv").textContent=st.bpm;
+  $("bpm").value=Math.round(st.bpm); $("bpmv").textContent=Math.round(st.bpm*10)/10;
   $("bpm").style.setProperty("--pct",((st.bpm-40)/200*100)+"%");
   var beat=st.playing?Math.floor(st.step/4)%4:-1;
   $("dots").innerHTML=[0,1,2,3].map(function(i){return '\x3cspan class="dot '+(i===beat?"on":"")+'"\x3e\x3c/span\x3e';}).join("");
