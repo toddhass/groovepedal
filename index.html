@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-clock -->
+  <!-- pages-redeploy 2026-09-07-publish-live -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -153,6 +153,7 @@
       <p class="hint" id="trackai"></p>
       <div class="ai-bar" id="aibarwrap" hidden><div class="ai-fill" id="aibar"></div></div>
       <button class="inst" id="retryai" type="button" hidden>AI SPLIT</button>
+      <button class="inst" id="ailock" type="button" disabled>AI LOCK</button>
       <div class="inst-grid">
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
@@ -514,6 +515,7 @@ function analyzeTrack(buf, hint){
 function PracticeTrack(ctx, dest){
   this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.buffer=null; this.stems=null;
   this.nativeBpm=0; this.cue=0; this.nudge=0; this.rate=1; this.wantPlay=false;
+  this.lockTap=ctx.createGain();
   this.split=ctx.createChannelSplitter(2);
   var midL=ctx.createGain(); midL.gain.value=.5;
   var midR=ctx.createGain(); midR.gain.value=.5;
@@ -554,7 +556,7 @@ PracticeTrack.prototype.play=function(when){
   if(!this.buffer)return;
   this.stopSrc();
   var src=this.ctx.createBufferSource();
-  src.buffer=this.buffer; src.connect(this.split);
+  src.buffer=this.buffer; src.connect(this.split); src.connect(this.lockTap);
   src.playbackRate.value=this.rate||1;
   var duration=this.buffer.duration;
   var off=Math.max(0, (this.cue||0)+(this.nudge||0));
@@ -692,12 +694,57 @@ self.onmessage=async function(ev){
 };
 `;
 
+var LOCK_WORKLET="class GrooveLockTap extends AudioWorkletProcessor{constructor(){super();this.lp=0;this.env=0;this.prev=0;this.hold=0;this.lpA=1-Math.exp(-2*Math.PI*75/sampleRate);this.at=1-Math.exp(-1/(sampleRate*0.003));this.rel=1-Math.exp(-1/(sampleRate*0.04));}process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;var peak=0;for(var i=0;i<ch.length;i++){this.lp+=this.lpA*(ch[i]-this.lp);var abs=this.lp<0?-this.lp:this.lp;this.env+=(abs>this.env?this.at:this.rel)*(abs-this.env);if(this.env>peak)peak=this.env;}var flux=peak>this.prev?peak-this.prev:0;this.prev=peak;this.hold-=ch.length/sampleRate;if(flux>0.01&&this.hold<=0){this.port.postMessage({t:currentTime,flux:flux});this.hold=0.09;}return true;}}registerProcessor('groove-lock-tap',GrooveLockTap);";
+function LiveLock(ctx){
+  this.ctx=ctx; this.input=ctx.createGain(); this.enabled=true; this.state="off";
+  this.origin=0; this.bpm=120; this.last=0; this.hits=0; this.dirty=false; this.ready=false;
+  var silent=ctx.createGain(); silent.gain.value=0; silent.connect(ctx.destination); this.silent=silent;
+}
+LiveLock.prototype.init=function(){
+  if(this.ready||!this.ctx.audioWorklet) return Promise.resolve();
+  var self=this;
+  var url=URL.createObjectURL(new Blob([LOCK_WORKLET],{type:"text/javascript"}));
+  return this.ctx.audioWorklet.addModule(url).then(function(){
+    URL.revokeObjectURL(url);
+    var node=new AudioWorkletNode(self.ctx,"groove-lock-tap",{numberOfInputs:1,numberOfOutputs:1,channelCount:1});
+    self.input.connect(node); node.connect(self.silent);
+    node.port.onmessage=function(ev){ if(ev.data&&typeof ev.data.t==="number") self.onOnset(ev.data.t, ev.data.flux||0); };
+    self.node=node; self.ready=true;
+  }).catch(function(){ self.ready=false; });
+};
+LiveLock.prototype.reset=function(origin,bpm){
+  this.origin=origin; this.bpm=bpm; this.last=0; this.hits=0; this.dirty=false;
+  this.state=this.enabled?"listening":"off";
+};
+LiveLock.prototype.consume=function(){
+  if(!this.dirty) return null;
+  this.dirty=false;
+  return {origin:this.origin,bpm:this.bpm,state:this.state};
+};
+LiveLock.prototype.onOnset=function(t,flux){
+  if(!this.enabled||!this.bpm) return;
+  var period=60/this.bpm; if(period<=0) return;
+  var err=t-this.origin;
+  err=((err%period)+period)%period;
+  if(err>period/2) err-=period;
+  if(Math.abs(err)>period*0.32) return;
+  this.origin+=err*0.16*Math.min(1,flux/0.04);
+  if(this.last && t-this.last>0.12){
+    var ioi=t-this.last, n=Math.round(ioi/period);
+    if(n>=1&&n<=4){
+      var inst=60/(ioi/n);
+      if(Math.abs(inst-this.bpm)<10) this.bpm=Math.round(Math.min(240,Math.max(40,this.bpm+(inst-this.bpm)*0.05))*1000)/1000;
+    }
+  }
+  this.last=t; this.hits++; this.state=this.hits>=4?"locked":"listening"; this.dirty=true;
+};
+
 function Engine(){
   this.song=null;this.playing=false;this.partIndex=0;this.step=0;this.bpm=120;this.volume=1;
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
-  this.origin=0;this.clockStep=0;
+  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=true;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -711,7 +758,9 @@ Engine.prototype.state=function(){
     trackName:this.track&&this.track.name,trackVocalsOn:!this.track||this.track.vocalsOn,trackGuitarOn:!this.track||this.track.guitarOn,
     trackAi:this.trackAi,trackAiProgress:this.trackAiProgress,trackAiMessage:this.trackAiMessage,
     trackOffset:this.track?Math.max(0,(this.track.cue||0)+(this.track.nudge||0)):0,
-    trackNativeBpm:this.track&&this.track.nativeBpm||0
+    trackNativeBpm:this.track&&this.track.nativeBpm||0,
+    liveLock:this.live&&this.live.state||"off",
+    liveLockOn:this.liveLockOn
   };
 };
 Engine.prototype.load=function(song){
@@ -732,6 +781,9 @@ Engine.prototype.unlock=function(){
       drums.connect(comp);comp.connect(makeup);makeup.connect(this.master);this.master.connect(this.ctx.destination);
       this.synth=new Synth(this.ctx,drums);
       this.track=new PracticeTrack(this.ctx,this.master);
+      this.live=new LiveLock(this.ctx);
+      this.track.lockTap.connect(this.live.input);
+      this.live.init();
       this.apply();
       var self=this;
       this.ctx.addEventListener("statechange",function(){
@@ -856,7 +908,10 @@ Engine.prototype.handleMidi=function(data){
 Engine.prototype.loadTrack=function(file){
   this.unlock();
   this.splitToken=(this.splitToken||0)+1;
-  if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
+  if(!this.track&&this.ctx&&this.master){
+    this.track=new PracticeTrack(this.ctx,this.master);
+    if(this.live) this.track.lockTap.connect(this.live.input);
+  }
   this.practiceFile=file;
   var self=this;
   if(this.track)this.track.load(file, this.song&&this.song.bpm||this.bpm, function(a){
@@ -885,6 +940,15 @@ Engine.prototype.nudgeTrack=function(dir){
   this.track.nudge=Math.max(-2,(this.track.nudge||0)+dir*six);
   if(this.playing) this.lockTrack();
   else this.emit();
+};
+Engine.prototype.setLiveLock=function(on){
+  this.liveLockOn=on;
+  if(this.live){
+    this.live.enabled=on&&this.track&&this.track.buffer;
+    if(on&&this.playing) this.live.reset(this.origin,this.bpm);
+    else this.live.state="off";
+  }
+  this.emit();
 };
 Engine.prototype.startSplit=function(file){
   var self=this, token=++this.splitToken;
@@ -927,6 +991,10 @@ Engine.prototype.begin=function(){
   this.clockStep=0;
   this.nextT=this.origin;
   if(this.track)this.track.play(this.origin);
+  if(this.live){
+    this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
+    this.live.reset(this.origin,this.bpm);
+  }
   clearInterval(this.timer);
   var self=this;
   this.timer=setInterval(function(){self.sched();},25);
@@ -938,9 +1006,21 @@ Engine.prototype.lockTrack=function(){
   var when=this.ctx.currentTime+.1;
   this.origin=when; this.nextT=when;
   this.track.play(when);
+  if(this.live){
+    this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
+    this.live.reset(when,this.bpm);
+  }
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
+  if(this.live&&this.liveLockOn&&this.track&&this.track.buffer){
+    var corr=this.live.consume();
+    if(corr){
+      this.origin=corr.origin;
+      if(corr.bpm&&Math.abs(corr.bpm-this.bpm)>0.01) this.bpm=corr.bpm;
+      this.nextT=this.origin+this.clockStep*(60/(this.bpm||120)/4);
+    }
+  }
   while(this.nextT<this.ctx.currentTime+.25){
     this.schedStep(this.nextT);this.advance();
   }
@@ -1032,6 +1112,9 @@ function paint(st){
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
   $("cowbell").classList.toggle("on",!!st.cowbellOn);
   $("trackname").textContent=st.trackName||"No file loaded";
+  $("ailock").disabled=!st.trackName;
+  $("ailock").classList.toggle("on",!!st.trackName&&!!st.liveLockOn);
+  $("ailock").textContent=st.liveLock==="locked"?"AI LOCK · LIVE":st.liveLock==="listening"?"AI LOCK · LISTENING":"AI LOCK";
   $("trackvocals").disabled=!st.trackName;
   $("trackguitar").disabled=!st.trackName;
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
@@ -1085,6 +1168,7 @@ $("trackfile").addEventListener("change",function(){
 press($("findinst"),function(){
   window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(song.title+" "+song.artist+" instrumental"),"_blank","noopener,noreferrer");
 });
+press($("ailock"),function(){if(engine.track&&engine.track.name)engine.setLiveLock(!engine.liveLockOn);});
 press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
 press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
 press($("songearly"),function(){engine.nudgeTrack(1);});
