@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-bands -->
+  <!-- pages-redeploy 2026-09-07-cowbell -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -129,6 +129,8 @@
     <div class="sliders">
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
+      <p class="label">Percussion</p>
+      <button class="inst" id="cowbell" type="button">COWBELL</button>
       <p class="label">Band</p>
       <div class="band-list" id="ensembles"></div>
       <p class="label">Instruments</p>
@@ -179,6 +181,19 @@ var AC={
   southern:{br:"2000001020000010",bn:[73.42,0,0,0,0,0,55,0,73.42,0,0,0,0,0,49,0],tr:"0000200300002000",tn:[0,0,0,0,587.33,0,493.88,0,0,0,0,0,440,0,0,0]},
   hiphop:{br:"2000000020001000",bn:[41.2,0,0,0,0,0,0,0,49,0,0,0,55,0,0,0],tr:"0000200000002000",tn:[0,0,0,0,392,0,0,0,0,0,0,0,293.66,0,0,0]},
 };
+var CB={
+  country:["2000000020000000","2000200020002000"],
+  folk:["2000000000000000","2000000020000000"],
+  ballad:["2000000000000000","2000000020000000"],
+  rock:["2000200020002000","2010201020102010"],
+  pop:["2000200020002000","2010201020102010"],
+  southern:["2000001020000010","2000201020002010"],
+  hiphop:["0000200000002000","2000200000002010"]
+};
+function cowbellRhythm(feel,partId){
+  var pair=CB[feel]||CB.rock;
+  return partId==="chorus"?pair[1]:pair[0];
+}
 function feelFromGenre(g,bpm){
   g=(g||"").toLowerCase();
   if(/hip.?hop|rap|trap/.test(g))return"hiphop";
@@ -277,6 +292,15 @@ Synth.prototype.tom=function(t,v,f){
   var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*.6,t+.18);
   var g=this.env(t,.7*v,.003,.2);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.25);
 };
+Synth.prototype.cowbell=function(t,v){
+  var a=this.ctx.createOscillator();a.type="square";a.frequency.setValueAtTime(845,t);
+  var b=this.ctx.createOscillator();b.type="square";b.frequency.setValueAtTime(540,t);
+  var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=920;bp.Q.value=3.2;
+  var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=380;
+  var g=this.env(t,.42*v,.001,.2);
+  a.connect(bp);b.connect(bp);bp.connect(hp);hp.connect(g);g.connect(this.dest);
+  a.start(t);b.start(t);a.stop(t+.26);b.stop(t+.26);
+};
 Synth.prototype.trig=function(voice,t,v){
   v=Math.max(.05,Math.min(1.4,v));
   if(voice==="kick")this.kick(t,v);
@@ -288,6 +312,7 @@ Synth.prototype.trig=function(voice,t,v){
   else if(voice==="crash")this.crash(t,v);
   else if(voice==="tom")this.tom(t,v,160);
   else if(voice==="floor")this.tom(t,v,95);
+  else if(voice==="cowbell")this.cowbell(t,v);
 };
 Synth.prototype.bass=function(t,v,f){
   if(!f)return;
@@ -379,7 +404,7 @@ var ENSEMBLES=[
 function Engine(){
   this.song=null;this.playing=false;this.partIndex=0;this.step=0;this.bpm=120;this.volume=1;
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
-  this.enabled={};this.ensemble=null;this.feelOverride=null;
+  this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -389,7 +414,7 @@ Engine.prototype.state=function(){
     playing:this.playing,ready:this.ctx&&this.ctx.state==="running",
     partName:(p&&p.name)||"—",partIndex:this.partIndex,step:this.step,bpm:this.bpm,
     inFill:this.inFill,fillQ:this.fillQ,nextQ:this.nextQ,accentQ:this.accentQ,volume:this.volume,
-    feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble
+    feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble,cowbellOn:this.cowbellOn
   };
 };
 Engine.prototype.load=function(song){
@@ -482,6 +507,11 @@ Engine.prototype.matchEnsemble=function(){
   }
   return null;
 };
+Engine.prototype.setCowbell=function(on){
+  this.unlock();
+  this.cowbellOn=on;
+  this.emit();
+};
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
@@ -502,6 +532,11 @@ Engine.prototype.schedStep=function(when){
   var voices=["kick","snare","hat","openHat","ride","tom","floor","crash","rim","clap"];
   var stepIdx=this.inFill?this.fillStep:this.step;
   for(var i=0;i<voices.length;i++){var v=voices[i];var velo=hit(pattern[v],stepIdx);if(velo)this.synth.trig(v,when,velo);}
+  if(this.cowbellOn&&!this.inFill){
+    var cRhythm=cowbellRhythm(this.song.feel,part.id);
+    var velC=hit(cRhythm,st);
+    if(velC)this.synth.trig("cowbell",when,velC);
+  }
   if(!this.inFill){
     var acc=AC[this.song.feel]||AC.rock;
     var ids=Object.keys(this.enabled);
@@ -565,6 +600,7 @@ function paint(st){
   $("styles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.feel===st.feel);});
   $("ensembles").querySelectorAll(".band-row").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
+  $("cowbell").classList.toggle("on",!!st.cowbellOn);
 }
 engine.sub(paint); engine.load(song); renderList(); paint();
 function press(el,fn){
@@ -578,6 +614,7 @@ press($("fill"),function(){engine.queueFill();});
 press($("next"),function(){engine.queueNext();});
 press($("restart"),function(){engine.restart();});
 press($("accent"),function(){engine.queueAccent();});
+press($("cowbell"),function(){engine.setCowbell(!engine.cowbellOn);});
 $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" type="button" data-feel="'+s.id+'"\x3e'+s.label+'\x3c/button\x3e';}).join("");
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
