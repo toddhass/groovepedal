@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-clock -->
+  <!-- pages-redeploy 2026-09-07-publish-simple -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -629,7 +629,7 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
   this.stems=null; this.buffer=null; this.nudge=0; this.rate=1; this.cue=0;
   this.name=file.name.replace(/\.[^.]+$/,"");
   var name=(file.name||"").toLowerCase(), type=(file.type||"").toLowerCase();
-  var isVid=/^video\/|webm/.test(type) || /\.(webm|mp4|m4v|mov|mkv)$/.test(name);
+  var isVid=/^video\//.test(type) || /\.(webm|mp4|m4v|mov|mkv)$/.test(name) || type.indexOf("webm")>=0;
   if(file.size>(isVid?80:22)*1024*1024){
     if(onReady) onReady({error:"File is too big. Use a clip under ~4 minutes."});
     return;
@@ -638,8 +638,8 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
     var max=Math.min(buf.length, Math.floor(buf.sampleRate*180));
     var stereo=self.ctx.createBuffer(2, max, buf.sampleRate);
     var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-    stereo.copyToChannel(L.subarray(0,max),0);
-    stereo.copyToChannel(R.subarray(0,max),1);
+    stereo.getChannelData(0).set(L.subarray(0,max));
+    stereo.getChannelData(1).set(R.subarray(0,max));
     self.buffer=stereo;
     var a=analyzeTrack(self.buffer, hint||120);
     self.nativeBpm=a.bpm; self.cue=a.offset;
@@ -663,9 +663,9 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
       if(onReady) onReady({error:"Could not read that WebM. Try Chrome, or export WAV/MP3."});
     };
   }
+  if(isVid){ loadVideo(); return; }
   file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw); }).then(takeBuf).catch(function(){
-    if(isVid) loadVideo();
-    else if(onReady) onReady({error:"Could not decode audio"});
+    if(onReady) onReady({error:"Could not decode audio"});
   });
 };
 PracticeTrack.prototype.prepare=function(transport){
@@ -674,7 +674,7 @@ PracticeTrack.prototype.prepare=function(transport){
   if(!this.mediaNode){
     try{
       this.mediaNode=this.ctx.createMediaElementSource(el);
-      this.mediaNode.connect(this.split); this.mediaNode.connect(this.lockTap);
+      this.mediaNode.connect(this.out); this.mediaNode.connect(this.lockTap);
     }catch(e){}
   }
   var duration=isFinite(el.duration)?el.duration:0;
@@ -693,7 +693,7 @@ PracticeTrack.prototype.playMedia=function(when, transport){
   if(!this.mediaNode){
     try{
       this.mediaNode=this.ctx.createMediaElementSource(el);
-      this.mediaNode.connect(this.split); this.mediaNode.connect(this.lockTap);
+      this.mediaNode.connect(this.out); this.mediaNode.connect(this.lockTap);
     }catch(e){}
   }
   var duration=isFinite(el.duration)?el.duration:0;
@@ -849,7 +849,7 @@ function Engine(){
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
-  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=false;this.countInOn=true;this.hold=null;this.arming=false;
+  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=false;this.countInOn=false;this.hold=null;this.arming=false;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -1118,50 +1118,39 @@ Engine.prototype.startSplit=function(file){
   reader.readAsArrayBuffer(file);
 };
 Engine.prototype.begin=function(){
-  if(!this.playing||!this.ctx||this.clock||this.arming)return;
+  if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
-  this.arming=true;
-  var self=this;
-  var resume=this.hold; this.hold=null;
   var beat=60/(this.bpm||120);
   var six=beat/4;
+  var resume=this.hold; this.hold=null;
   var transport=resume?resume.clockStep*six:0;
-  var after=function(){
-    if(!self.playing||!self.ctx){ self.arming=false; return; }
-    self.clock=true; self.arming=false;
-    self.drumLag=0; self.songLag=0;
-    if(self.track&&self.track.setAlign) self.track.setAlign(0);
-    if(self.drumAlign) self.drumAlign.delayTime.value=0;
-    var countIn=self.countInOn&&!resume&&self.track&&(self.track.buffer||self.track.media);
-    var clickAt=self.ctx.currentTime+0.3;
-    var when=countIn?clickAt+beat*4:clickAt;
-    if(countIn&&self.synth){
-      for(var i=0;i<4;i++){
-        var t=clickAt+i*beat;
-        self.synth.trig("kick",t,i===0?1:0.5);
-        self.synth.trig("hat",t,i===3?1:0.75);
-      }
+  this.clock=true; this.arming=false;
+  this.drumLag=0; this.songLag=0;
+  try{ if(this.track&&this.track.setAlign) this.track.setAlign(0); }catch(e){}
+  if(this.drumAlign) this.drumAlign.delayTime.value=0;
+  var when=this.ctx.currentTime+0.2;
+  if(this.countInOn&&!resume&&this.track&&(this.track.buffer||this.track.media)&&this.synth){
+    var clickAt=when;
+    when=clickAt+beat*4;
+    for(var i=0;i<4;i++){
+      var t=clickAt+i*beat;
+      try{ this.synth.trig("kick",t,i===0?1:0.5); this.synth.trig("hat",t,i===3?1:0.75); }catch(e){}
     }
-    if(resume){
-      self.clockStep=resume.clockStep; self.partIndex=resume.partIndex; self.step=resume.step;
-      self.inFill=resume.inFill; self.fillStep=resume.fillStep||0;
-      self.origin=when-self.clockStep*six; self.nextT=when;
-      if(self.track)self.track.play(when, transport);
-    } else {
-      self.clockStep=0; self.origin=when; self.nextT=when;
-      if(self.track)self.track.play(when, 0);
-    }
-    if(self.live){
-      self.live.enabled=self.liveLockOn&&self.track&&(self.track.buffer||self.track.media);
-      self.live.reset(self.origin,self.bpm, when+beat*8);
-    }
-    clearInterval(self.timer);
-    self.timer=setInterval(function(){self.sched();},25);
-    self.sched();
-    self.emit();
-  };
-  if(this.track&&this.track.prepare) this.track.prepare(transport).then(after).catch(after);
-  else after();
+  }
+  if(resume){
+    this.clockStep=resume.clockStep; this.partIndex=resume.partIndex; this.step=resume.step;
+    this.inFill=resume.inFill; this.fillStep=resume.fillStep||0;
+    this.origin=when-this.clockStep*six; this.nextT=when;
+    try{ if(this.track)this.track.play(when, transport); }catch(e){}
+  } else {
+    this.clockStep=0; this.origin=when; this.nextT=when;
+    try{ if(this.track)this.track.play(when, 0); }catch(e){}
+  }
+  clearInterval(this.timer);
+  var self=this;
+  this.timer=setInterval(function(){self.sched();},25);
+  try{ this.sched(); }catch(e){}
+  this.emit();
 };
 Engine.prototype.seekTrack=function(){
   if(!this.playing||!this.ctx||!this.track)return;
@@ -1184,11 +1173,13 @@ Engine.prototype.sched=function(){
     if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(0, this.ctx.currentTime, .04);
   }
   var guard=0;
+  try{
   while(this.nextT<this.ctx.currentTime+.25 && guard<48){
     if(!isFinite(this.nextT)) break;
     this.schedStep(this.nextT);this.advance();
     guard++;
   }
+  }catch(e){}
 };
 Engine.prototype.schedStep=function(when){
   var part=this.song.parts[this.partIndex]; if(!part||!this.synth)return;
