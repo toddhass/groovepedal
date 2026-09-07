@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-live -->
+  <!-- pages-redeploy 2026-09-07-publish-pause -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -551,7 +551,7 @@ PracticeTrack.prototype.stopSrc=function(){
   try{this.src.disconnect();}catch(e){}
   this.src=null;
 };
-PracticeTrack.prototype.play=function(when){
+PracticeTrack.prototype.play=function(when, transport){
   this.wantPlay=true;
   if(!this.buffer)return;
   this.stopSrc();
@@ -559,21 +559,23 @@ PracticeTrack.prototype.play=function(when){
   src.buffer=this.buffer; src.connect(this.split); src.connect(this.lockTap);
   src.playbackRate.value=this.rate||1;
   var duration=this.buffer.duration;
-  var off=Math.max(0, (this.cue||0)+(this.nudge||0));
-  if(off>duration-0.05) off=Math.max(0, duration-0.05);
+  var cue=Math.max(0, (this.cue||0)+(this.nudge||0));
+  if(cue>duration-0.05) cue=Math.max(0, duration-0.05);
   var bar=(4*60)/(this.nativeBpm||120);
-  var remain=Math.max(bar, duration-off);
+  var remain=Math.max(bar, duration-cue);
   var bars=Math.max(1, Math.floor(remain/bar+1e-9));
-  src.loop=true; src.loopStart=off; src.loopEnd=Math.min(duration-0.0005, off+bars*bar);
+  src.loop=true; src.loopStart=cue; src.loopEnd=Math.min(duration-0.0005, cue+bars*bar);
   if(src.loopEnd<=src.loopStart+0.08) src.loop=false;
+  var span=src.loop?src.loopEnd-src.loopStart:duration-cue;
+  var off=cue+Math.max(0, transport||0)*(this.rate||1);
+  if(span>0) off=cue+(((off-cue)%span)+span)%span;
   var now=this.ctx.currentTime;
   var target=when==null?now:when;
   var startAt=target;
   if(target<now){
-    off+= (now-target)*(this.rate||1);
+    off+=(now-target)*(this.rate||1);
     startAt=now;
-    var span=src.loop?src.loopEnd-src.loopStart:duration-src.loopStart;
-    if(span>0 && off>=src.loopEnd) off=src.loopStart+((off-src.loopStart)%span);
+    if(span>0) off=cue+(((off-cue)%span)+span)%span;
   }
   if(off>=duration)return;
   src.start(startAt, off);
@@ -712,31 +714,33 @@ LiveLock.prototype.init=function(){
     self.node=node; self.ready=true;
   }).catch(function(){ self.ready=false; });
 };
-LiveLock.prototype.reset=function(origin,bpm){
-  this.origin=origin; this.bpm=bpm; this.last=0; this.hits=0; this.dirty=false;
+LiveLock.prototype.reset=function(origin,bpm,holdUntil){
+  this.origin=origin; this.bpm=bpm; this.hits=0; this.errors=[]; this.pendingSlip=0;
+  this.holdUntil=holdUntil!=null?holdUntil:origin+(60/Math.max(bpm,40))*8;
+  this.lastSlipAt=0;
   this.state=this.enabled?"listening":"off";
 };
-LiveLock.prototype.consume=function(){
-  if(!this.dirty) return null;
-  this.dirty=false;
-  return {origin:this.origin,bpm:this.bpm,state:this.state};
+LiveLock.prototype.suspend=function(){ this.enabled=false; this.pendingSlip=0; this.errors=[]; this.state="off"; };
+LiveLock.prototype.consumeSlip=function(){
+  if(!this.pendingSlip) return 0;
+  var s=this.pendingSlip; this.pendingSlip=0; this.lastSlipAt=this.ctx.currentTime; return s;
 };
-LiveLock.prototype.onOnset=function(t,flux){
-  if(!this.enabled||!this.bpm) return;
+LiveLock.prototype.onOnset=function(t){
+  if(!this.enabled||!this.bpm||t<this.holdUntil) return;
   var period=60/this.bpm; if(period<=0) return;
   var err=t-this.origin;
   err=((err%period)+period)%period;
   if(err>period/2) err-=period;
-  if(Math.abs(err)>period*0.32) return;
-  this.origin+=err*0.16*Math.min(1,flux/0.04);
-  if(this.last && t-this.last>0.12){
-    var ioi=t-this.last, n=Math.round(ioi/period);
-    if(n>=1&&n<=4){
-      var inst=60/(ioi/n);
-      if(Math.abs(inst-this.bpm)<10) this.bpm=Math.round(Math.min(240,Math.max(40,this.bpm+(inst-this.bpm)*0.05))*1000)/1000;
-    }
-  }
-  this.last=t; this.hits++; this.state=this.hits>=4?"locked":"listening"; this.dirty=true;
+  if(Math.abs(err)>period*0.28) return;
+  this.errors=this.errors||[]; this.errors.push(err);
+  if(this.errors.length>6) this.errors.shift();
+  this.hits++; this.state=this.hits>=4?"locked":"listening";
+  if(this.errors.length<4) return;
+  if(this.ctx.currentTime-(this.lastSlipAt||0)<1.8) return;
+  var sorted=this.errors.slice().sort(function(a,b){return a-b;});
+  var med=sorted[Math.floor(sorted.length/2)]||0;
+  if(Math.abs(med)<0.012) return;
+  this.pendingSlip=med; this.errors=[];
 };
 
 function Engine(){
@@ -744,7 +748,7 @@ function Engine(){
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
-  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=true;
+  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=true;this.hold=null;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -787,7 +791,10 @@ Engine.prototype.unlock=function(){
       this.apply();
       var self=this;
       this.ctx.addEventListener("statechange",function(){
-        if(self.ctx.state==="running"&&self.playing)self.begin();
+        if(self.ctx.state==="running"&&self.playing){
+          if(!self.clock) self.begin();
+          else self.reattach();
+        }
         self.emit();
       });
     }
@@ -806,19 +813,29 @@ Engine.prototype.apply=function(){
 };
 Engine.prototype.start=function(){
   if(!this.song)return;
-  this.unlock();this.playing=true;this.partIndex=0;this.step=0;this.inFill=false;this.fillQ=false;this.nextQ=false;this.clock=false;this.clockStep=0;
+  this.unlock();this.playing=true;this.fillQ=false;this.nextQ=false;this.clock=false;
+  if(!this.hold){ this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0; }
   this.begin();
   if(!this.track||!this.track.buffer){
     if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
   }
   this.emit();
 };
-Engine.prototype.stop=function(){this.playing=false;this.clock=false;clearInterval(this.timer);if(this.track)this.track.pause();this.emit();};
+Engine.prototype.stop=function(){
+  if(this.playing&&this.clock){
+    this.hold={clockStep:this.clockStep,partIndex:this.partIndex,step:this.step,inFill:this.inFill,fillStep:this.fillStep||0};
+  }
+  this.playing=false;this.clock=false;clearInterval(this.timer);
+  if(this.live) this.live.suspend();
+  if(this.track)this.track.pause();
+  this.emit();
+};
 Engine.prototype.toggle=function(){if(this.playing&&this.ctx&&this.ctx.state==="running")this.stop();else this.start();};
 Engine.prototype.queueFill=function(){this.fillQ=true;this.emit();};
 Engine.prototype.queueNext=function(){this.nextQ=true;this.emit();};
 Engine.prototype.restart=function(){
-  this.partIndex=0;this.step=0;this.inFill=false;
+  this.hold=null;
+  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;
   if(this.playing) this.lockTrack();
   else if(this.track) this.track.pause();
   this.emit();
@@ -945,8 +962,8 @@ Engine.prototype.setLiveLock=function(on){
   this.liveLockOn=on;
   if(this.live){
     this.live.enabled=on&&this.track&&this.track.buffer;
-    if(on&&this.playing) this.live.reset(this.origin,this.bpm);
-    else this.live.state="off";
+    if(on&&this.playing) this.live.reset(this.origin,this.bpm, this.ctx.currentTime+2);
+    else this.live.suspend();
   }
   this.emit();
 };
@@ -987,13 +1004,21 @@ Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
   this.clock=true;
-  this.origin=this.ctx.currentTime+.1;
-  this.clockStep=0;
-  this.nextT=this.origin;
-  if(this.track)this.track.play(this.origin);
+  var when=this.ctx.currentTime+.18;
+  var six=60/(this.bpm||120)/4;
+  var resume=this.hold; this.hold=null;
+  if(resume){
+    this.clockStep=resume.clockStep; this.partIndex=resume.partIndex; this.step=resume.step;
+    this.inFill=resume.inFill; this.fillStep=resume.fillStep||0;
+    this.origin=when-this.clockStep*six; this.nextT=when;
+    if(this.track)this.track.play(when, this.clockStep*six);
+  } else {
+    this.clockStep=0; this.origin=when; this.nextT=when;
+    if(this.track)this.track.play(when, 0);
+  }
   if(this.live){
     this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
-    this.live.reset(this.origin,this.bpm);
+    this.live.reset(this.origin,this.bpm, when+(60/Math.max(this.bpm,40))*8);
   }
   clearInterval(this.timer);
   var self=this;
@@ -1002,23 +1027,27 @@ Engine.prototype.begin=function(){
 };
 Engine.prototype.lockTrack=function(){
   if(!this.playing||!this.ctx||!this.track)return;
-  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;
-  var when=this.ctx.currentTime+.1;
+  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;this.hold=null;
+  var when=this.ctx.currentTime+.18;
   this.origin=when; this.nextT=when;
-  this.track.play(when);
+  this.track.play(when, 0);
   if(this.live){
     this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
-    this.live.reset(when,this.bpm);
+    this.live.reset(when,this.bpm, when+(60/Math.max(this.bpm,40))*8);
   }
+};
+Engine.prototype.reattach=function(){
+  if(!this.playing||!this.ctx||!this.track||!this.track.buffer||!this.clock)return;
+  var when=this.ctx.currentTime+.08;
+  this.track.play(when, Math.max(0, when-this.origin));
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
   if(this.live&&this.liveLockOn&&this.track&&this.track.buffer){
-    var corr=this.live.consume();
-    if(corr){
-      this.origin=corr.origin;
-      if(corr.bpm&&Math.abs(corr.bpm-this.bpm)>0.01) this.bpm=corr.bpm;
-      this.nextT=this.origin+this.clockStep*(60/(this.bpm||120)/4);
+    var slip=this.live.consumeSlip();
+    if(slip){
+      var when=this.ctx.currentTime+.04;
+      this.track.play(when, Math.max(0, when-this.origin+slip));
     }
   }
   while(this.nextT<this.ctx.currentTime+.25){
