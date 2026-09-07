@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-hats -->
+  <!-- pages-redeploy 2026-09-07-practice-track -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -47,6 +47,11 @@
     .chip, .inst { min-height: 2.75rem; border: 0; border-radius: .75rem; background: #23211d; color: var(--fg); font-family: Oswald, sans-serif; letter-spacing: .14em; font-size: .75rem; padding: 0 .75rem; }
     .chip.on, .inst.on { background: var(--gold); color: #1a160c; }
     .inst { min-height: 2.75rem; width: 100%; font-size: .75rem; }
+    .file-btn { display: flex; align-items: center; justify-content: center; position: relative; }
+    .file-btn input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    .hint { color: var(--muted); font-size: .75rem; margin: 0 0 .4rem; line-height: 1.4; }
+    .track-name { color: var(--gold); font-size: .875rem; margin: .35rem 0 .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inst[disabled] { opacity: .4; }
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
     @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
     .band-list { max-height: 13rem; overflow-y: auto; border-radius: .75rem; background: var(--bg); box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
@@ -101,7 +106,7 @@
   <div class="wrap">
     <header>
       <h1>GroovePedal Library</h1>
-      <p class="sub">Search a song, then play drums along</p>
+      <p class="sub">Search a song, play drums along — load a track to mute guitar</p>
     </header>
     <div class="card library">
       <input id="q" type="search" placeholder="Search any song... e.g. Hotel California" aria-label="Search songs" />
@@ -129,6 +134,17 @@
     <div class="sliders">
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
+      <p class="label">Practice track</p>
+      <p class="hint">Can’t stream the original hit. Load a file you own, then tap Guitar off.</p>
+      <div class="inst-grid">
+        <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" /></label>
+        <button class="inst" id="findinst" type="button">FIND INSTRUMENTAL</button>
+      </div>
+      <p class="track-name" id="trackname">No file loaded</p>
+      <div class="inst-grid">
+        <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
+        <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
+      </div>
       <p class="label">Percussion</p>
       <button class="inst" id="cowbell" type="button">COWBELL</button>
       <p class="label">Band</p>
@@ -401,10 +417,68 @@ var ENSEMBLES=[
   {id:"baroque",label:"Baroque ensemble",group:"Wind & orchestra",ids:["violin","cello","flute","oboe","piano"]}
 ];
 
+function PracticeTrack(ctx, dest){
+  this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.url=null;
+  this.el=new Audio(); this.el.loop=true; this.el.preload="auto"; this.el.setAttribute("playsinline","");
+  this.split=ctx.createChannelSplitter(2);
+  var midL=ctx.createGain(); midL.gain.value=.5;
+  var midR=ctx.createGain(); midR.gain.value=.5;
+  var mid=ctx.createGain();
+  var sideL=ctx.createGain(); sideL.gain.value=.5;
+  var sideR=ctx.createGain(); sideR.gain.value=-.5;
+  this.guitarGain=ctx.createGain();
+  var midLow=ctx.createBiquadFilter(); midLow.type="lowpass"; midLow.frequency.value=160;
+  var midHigh=ctx.createBiquadFilter(); midHigh.type="highpass"; midHigh.frequency.value=160;
+  this.vocalsGain=ctx.createGain();
+  this.body=ctx.createBiquadFilter(); this.body.type="peaking"; this.body.frequency.value=720; this.body.Q.value=.85; this.body.gain.value=0;
+  this.air=ctx.createBiquadFilter(); this.air.type="peaking"; this.air.frequency.value=2650; this.air.Q.value=.8; this.air.gain.value=0;
+  var ls=ctx.createGain(); ls.gain.value=1;
+  var rs=ctx.createGain(); rs.gain.value=-1;
+  var merge=ctx.createChannelMerger(2);
+  this.out=ctx.createGain(); this.out.gain.value=.82;
+  this.split.connect(midL,0); this.split.connect(midR,1); midL.connect(mid); midR.connect(mid);
+  this.split.connect(sideL,0); this.split.connect(sideR,1); sideL.connect(this.guitarGain); sideR.connect(this.guitarGain);
+  mid.connect(midLow); mid.connect(midHigh); midHigh.connect(this.vocalsGain); this.vocalsGain.connect(this.body); this.body.connect(this.air);
+  midLow.connect(merge,0,0); midLow.connect(merge,0,1);
+  this.air.connect(merge,0,0); this.air.connect(merge,0,1);
+  this.guitarGain.connect(ls); ls.connect(merge,0,0);
+  this.guitarGain.connect(rs); rs.connect(merge,0,1);
+  merge.connect(this.out); this.out.connect(dest);
+}
+PracticeTrack.prototype.ensure=function(){
+  if(this.src)return;
+  this.src=this.ctx.createMediaElementSource(this.el);
+  this.src.connect(this.split);
+};
+PracticeTrack.prototype.apply=function(){
+  var t=this.ctx.currentTime;
+  this.vocalsGain.gain.setTargetAtTime(this.vocalsOn?1:.04,t,.03);
+  this.guitarGain.gain.setTargetAtTime(this.guitarOn?1:0,t,.03);
+  this.body.gain.setTargetAtTime(this.guitarOn?0:-11,t,.03);
+  this.air.gain.setTargetAtTime(this.guitarOn?0:-9,t,.03);
+};
+PracticeTrack.prototype.load=function(file){
+  this.ensure();
+  if(this.url) URL.revokeObjectURL(this.url);
+  this.url=URL.createObjectURL(file);
+  this.el.src=this.url;
+  this.name=file.name.replace(/\.[^.]+$/,"");
+  this.el.load();
+  this.apply();
+};
+PracticeTrack.prototype.play=function(){
+  if(!this.name)return;
+  this.ensure();
+  this.el.currentTime=0;
+  this.el.play().catch(function(){});
+};
+PracticeTrack.prototype.pause=function(){ try{this.el.pause();}catch(e){} };
+PracticeTrack.prototype.rewind=function(){ try{this.el.currentTime=0;}catch(e){} };
+
 function Engine(){
   this.song=null;this.playing=false;this.partIndex=0;this.step=0;this.bpm=120;this.volume=1;
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
-  this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;
+  this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -414,7 +488,8 @@ Engine.prototype.state=function(){
     playing:this.playing,ready:this.ctx&&this.ctx.state==="running",
     partName:(p&&p.name)||"—",partIndex:this.partIndex,step:this.step,bpm:this.bpm,
     inFill:this.inFill,fillQ:this.fillQ,nextQ:this.nextQ,accentQ:this.accentQ,volume:this.volume,
-    feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble,cowbellOn:this.cowbellOn
+    feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble,cowbellOn:this.cowbellOn,
+    trackName:this.track&&this.track.name,trackVocalsOn:!this.track||this.track.vocalsOn,trackGuitarOn:!this.track||this.track.guitarOn
   };
 };
 Engine.prototype.load=function(song){
@@ -434,6 +509,7 @@ Engine.prototype.unlock=function(){
       this.master=this.ctx.createGain();
       drums.connect(comp);comp.connect(makeup);makeup.connect(this.master);this.master.connect(this.ctx.destination);
       this.synth=new Synth(this.ctx,drums);
+      this.track=new PracticeTrack(this.ctx,this.master);
       this.apply();
       var self=this;
       this.ctx.addEventListener("statechange",function(){
@@ -458,13 +534,18 @@ Engine.prototype.start=function(){
   if(!this.song)return;
   this.unlock();this.playing=true;this.step=0;this.inFill=false;this.clock=false;this.begin();
   if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
+  if(this.track)this.track.play();
   this.emit();
 };
-Engine.prototype.stop=function(){this.playing=false;this.clock=false;clearInterval(this.timer);this.emit();};
+Engine.prototype.stop=function(){this.playing=false;this.clock=false;clearInterval(this.timer);if(this.track)this.track.pause();this.emit();};
 Engine.prototype.toggle=function(){if(this.playing&&this.ctx&&this.ctx.state==="running")this.stop();else this.start();};
 Engine.prototype.queueFill=function(){this.fillQ=true;this.emit();};
 Engine.prototype.queueNext=function(){this.nextQ=true;this.emit();};
-Engine.prototype.restart=function(){this.partIndex=0;this.step=0;this.inFill=false;this.emit();};
+Engine.prototype.restart=function(){
+  this.partIndex=0;this.step=0;this.inFill=false;
+  if(this.track){this.track.rewind();if(this.playing)this.track.play();}
+  this.emit();
+};
 Engine.prototype.queueAccent=function(){this.accentQ=true;this.emit();};
 Engine.prototype.setBpm=function(n){this.bpm=n;this.emit();};
 Engine.prototype.setVol=function(n){this.volume=n;this.apply();this.emit();};
@@ -510,6 +591,22 @@ Engine.prototype.matchEnsemble=function(){
 Engine.prototype.setCowbell=function(on){
   this.unlock();
   this.cowbellOn=on;
+  this.emit();
+};
+Engine.prototype.loadTrack=function(file){
+  this.unlock();
+  if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
+  if(this.track)this.track.load(file);
+  this.emit();
+};
+Engine.prototype.setTrackVocals=function(on){
+  this.unlock();
+  if(this.track){this.track.vocalsOn=on;this.track.apply();}
+  this.emit();
+};
+Engine.prototype.setTrackGuitar=function(on){
+  this.unlock();
+  if(this.track){this.track.guitarOn=on;this.track.apply();}
   this.emit();
 };
 Engine.prototype.begin=function(){
@@ -606,6 +703,11 @@ function paint(st){
   $("ensembles").querySelectorAll(".band-row").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
   $("cowbell").classList.toggle("on",!!st.cowbellOn);
+  $("trackname").textContent=st.trackName||"No file loaded";
+  $("trackvocals").disabled=!st.trackName;
+  $("trackguitar").disabled=!st.trackName;
+  $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
+  $("trackguitar").classList.toggle("on",!!st.trackName&&!!st.trackGuitarOn);
 }
 engine.sub(paint); engine.load(song); renderList(); paint();
 function press(el,fn){
@@ -620,6 +722,16 @@ press($("next"),function(){engine.queueNext();});
 press($("restart"),function(){engine.restart();});
 press($("accent"),function(){engine.queueAccent();});
 press($("cowbell"),function(){engine.setCowbell(!engine.cowbellOn);});
+$("trackfile").addEventListener("change",function(){
+  var file=this.files&&this.files[0];
+  if(file)engine.loadTrack(file);
+  this.value="";
+});
+press($("findinst"),function(){
+  window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(song.title+" "+song.artist+" instrumental"),"_blank","noopener,noreferrer");
+});
+press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
+press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
 $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" type="button" data-feel="'+s.id+'"\x3e'+s.label+'\x3c/button\x3e';}).join("");
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
