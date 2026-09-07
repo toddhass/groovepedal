@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-stable -->
+  <!-- pages-redeploy 2026-09-07-publish-clock -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -143,10 +143,10 @@
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
       <p class="label">Practice track</p>
-      <p class="hint">Apple catalog previews are the real recording (30s). Tap one, then AI-split the guitar out. Full song: load the purchased .m4a.</p>
+      <p class="hint">Load a song, WebM, or MP4 — or tap an Apple 30s preview. Then hit START.</p>
       <div class="apple-list" id="applehits"></div>
       <div class="inst-grid">
-        <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" /></label>
+        <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,video/webm,video/mp4,.mp3,.m4a,.wav,.aac,.ogg,.webm,.mp4,.mkv" /></label>
         <button class="inst" id="findinst" type="button">FIND INSTRUMENTAL</button>
       </div>
       <p class="track-name" id="trackname">No file loaded</p>
@@ -154,6 +154,7 @@
       <div class="ai-bar" id="aibarwrap" hidden><div class="ai-fill" id="aibar"></div></div>
       <button class="inst" id="retryai" type="button" hidden>AI SPLIT</button>
       <button class="inst" id="ailock" type="button" disabled>AI LOCK</button>
+      <button class="inst" id="countin" type="button">COUNT-IN</button>
       <div class="inst-grid">
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
@@ -516,6 +517,7 @@ function PracticeTrack(ctx, dest){
   this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.buffer=null; this.stems=null;
   this.nativeBpm=0; this.cue=0; this.nudge=0; this.rate=1; this.wantPlay=false;
   this.lockTap=ctx.createGain();
+  this.media=null; this.mediaUrl=null; this.mediaNode=null; this.mediaTimer=0;
   this.split=ctx.createChannelSplitter(2);
   var midL=ctx.createGain(); midL.gain.value=.5;
   var midR=ctx.createGain(); midR.gain.value=.5;
@@ -555,6 +557,7 @@ PracticeTrack.prototype.stopSrc=function(){
 };
 PracticeTrack.prototype.play=function(when, transport){
   this.wantPlay=true;
+  if(this.media){ this.playMedia(when, transport); return; }
   if(!this.buffer)return;
   this.stopSrc();
   var src=this.ctx.createBufferSource();
@@ -589,7 +592,12 @@ PracticeTrack.prototype.play=function(when, transport){
 PracticeTrack.prototype.setAlign=function(sec){
   this.align.delayTime.setTargetAtTime(Math.max(0,Math.min(.1,sec||0)), this.ctx.currentTime, .05);
 };
-PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
+PracticeTrack.prototype.pause=function(){
+  this.wantPlay=false;
+  if(this.mediaTimer){ clearTimeout(this.mediaTimer); this.mediaTimer=0; }
+  try{ if(this.media) this.media.pause(); }catch(e){}
+  this.stopSrc();
+};
 PracticeTrack.prototype.rewind=function(){ if(this.wantPlay) this.play(); };
 PracticeTrack.prototype.apply=function(){
   var t=this.ctx.currentTime;
@@ -613,13 +621,20 @@ PracticeTrack.prototype.apply=function(){
 };
 PracticeTrack.prototype.load=function(file, hint, onReady){
   var self=this;
-  this.stopSrc(); this.stems=null; this.buffer=null; this.nudge=0; this.rate=1; this.cue=0;
+  this.stopSrc();
+  if(this.media){ try{ this.media.pause(); this.media.removeAttribute("src"); this.media.load(); }catch(e){} }
+  if(this.mediaNode){ try{ this.mediaNode.disconnect(); }catch(e){} }
+  if(this.mediaUrl) URL.revokeObjectURL(this.mediaUrl);
+  this.media=null; this.mediaUrl=null; this.mediaNode=null;
+  this.stems=null; this.buffer=null; this.nudge=0; this.rate=1; this.cue=0;
   this.name=file.name.replace(/\.[^.]+$/,"");
-  if(file.size>22*1024*1024){
-    if(onReady) onReady({error:"File is too big for the phone. Use a clip under ~4 minutes."});
+  var name=(file.name||"").toLowerCase(), type=(file.type||"").toLowerCase();
+  var isVid=/^video\/|webm/.test(type) || /\.(webm|mp4|m4v|mov|mkv)$/.test(name);
+  if(file.size>(isVid?80:22)*1024*1024){
+    if(onReady) onReady({error:"File is too big. Use a clip under ~4 minutes."});
     return;
   }
-  file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw); }).then(function(buf){
+  function takeBuf(buf){
     var max=Math.min(buf.length, Math.floor(buf.sampleRate*180));
     var stereo=self.ctx.createBuffer(2, max, buf.sampleRate);
     var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
@@ -631,9 +646,78 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
     self.apply();
     if(onReady) onReady(a);
     else if(self.wantPlay) self.play();
-  }).catch(function(err){
-    if(onReady) onReady({error: String(err&&err.message||err||"Could not decode audio")});
+  }
+  function loadVideo(){
+    var url=URL.createObjectURL(file);
+    var el=document.createElement("video");
+    el.preload="auto"; el.playsInline=true;
+    el.setAttribute("playsinline","true"); el.setAttribute("webkit-playsinline","true");
+    el.src=url;
+    el.onloadedmetadata=function(){
+      self.media=el; self.mediaUrl=url;
+      self.nativeBpm=hint||120; self.cue=0; self.apply();
+      if(onReady) onReady({bpm:self.nativeBpm, offset:0, media:true});
+    };
+    el.onerror=function(){
+      URL.revokeObjectURL(url);
+      if(onReady) onReady({error:"Could not read that WebM. Try Chrome, or export WAV/MP3."});
+    };
+  }
+  file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw); }).then(takeBuf).catch(function(){
+    if(isVid) loadVideo();
+    else if(onReady) onReady({error:"Could not decode audio"});
   });
+};
+PracticeTrack.prototype.prepare=function(transport){
+  var el=this.media;
+  if(!el) return Promise.resolve();
+  if(!this.mediaNode){
+    try{
+      this.mediaNode=this.ctx.createMediaElementSource(el);
+      this.mediaNode.connect(this.split); this.mediaNode.connect(this.lockTap);
+    }catch(e){}
+  }
+  var duration=isFinite(el.duration)?el.duration:0;
+  var cue=Math.min(this.offset||0, Math.max(0, duration>0.05?duration-0.05:0));
+  var off=cue+Math.max(0, transport||0);
+  if(duration>0.2 && off>=duration) off=cue+(off%Math.max(0.2, duration-cue));
+  try{ el.pause(); el.currentTime=off; }catch(e){}
+  return new Promise(function(resolve){
+    var done=function(){ el.removeEventListener("seeked", done); resolve(); };
+    el.addEventListener("seeked", done);
+    setTimeout(done, 450);
+  });
+};
+PracticeTrack.prototype.playMedia=function(when, transport){
+  var el=this.media; if(!el) return;
+  if(!this.mediaNode){
+    try{
+      this.mediaNode=this.ctx.createMediaElementSource(el);
+      this.mediaNode.connect(this.split); this.mediaNode.connect(this.lockTap);
+    }catch(e){}
+  }
+  var duration=isFinite(el.duration)?el.duration:0;
+  var cue=Math.min(this.offset||0, Math.max(0, duration>0.05?duration-0.05:0));
+  var off=cue+Math.max(0, transport||0);
+  if(duration>0.2 && off>=duration) off=cue+(off%Math.max(0.2, duration-cue));
+  try{ el.currentTime=off; }catch(e){}
+  el.playbackRate=this.rate||1; el.loop=true;
+  try{ this.gate.gain.cancelScheduledValues(this.ctx.currentTime); this.gate.gain.setValueAtTime(0.0001,this.ctx.currentTime);}catch(e){}
+  var now=this.ctx.currentTime, target=when==null?now:when, lead=0.06;
+  var playAt=target-lead;
+  if(this.mediaTimer) clearTimeout(this.mediaTimer);
+  var self=this;
+  function startVideo(){ el.play().catch(function(){}); }
+  function openGate(){
+    var t=Math.max(self.ctx.currentTime, target);
+    self.gate.gain.cancelScheduledValues(self.ctx.currentTime);
+    self.gate.gain.setValueAtTime(0.0001,self.ctx.currentTime);
+    self.gate.gain.setValueAtTime(0.0001,t);
+    self.gate.gain.linearRampToValueAtTime(1,t+.02);
+  }
+  var waitPlay=Math.max(0, playAt-now), waitGate=Math.max(0, target-now);
+  if(waitPlay<0.01) startVideo(); else this.mediaTimer=setTimeout(startVideo, waitPlay*1000);
+  setTimeout(openGate, waitGate*1000);
 };
 PracticeTrack.prototype.setStems=function(stems){
   this.stems=stems;
@@ -765,7 +849,7 @@ function Engine(){
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
-  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=true;this.hold=null;
+  this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=false;this.countInOn=true;this.hold=null;this.arming=false;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -781,7 +865,8 @@ Engine.prototype.state=function(){
     trackOffset:this.track?Math.max(0,(this.track.cue||0)+(this.track.nudge||0)):0,
     trackNativeBpm:this.track&&this.track.nativeBpm||0,
     liveLock:this.live&&this.live.state||"off",
-    liveLockOn:this.liveLockOn
+    liveLockOn:this.liveLockOn,
+    countInOn:this.countInOn
   };
 };
 Engine.prototype.load=function(song){
@@ -840,9 +925,6 @@ Engine.prototype.start=function(){
   this.unlock();this.playing=true;this.fillQ=false;this.nextQ=false;this.clock=false;
   if(!this.hold){ this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0; }
   this.begin();
-  if(!this.track||!this.track.buffer){
-    if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
-  }
   this.emit();
 };
 Engine.prototype.stop=function(){
@@ -859,9 +941,10 @@ Engine.prototype.queueFill=function(){this.fillQ=true;this.emit();};
 Engine.prototype.queueNext=function(){this.nextQ=true;this.emit();};
 Engine.prototype.restart=function(){
   this.hold=null;
-  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;
-  if(this.playing) this.lockTrack();
-  else if(this.track) this.track.pause();
+  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;this.fillStep=0;
+  this.clock=false; this.origin=0;
+  if(this.track) this.track.pause();
+  if(this.playing) this.begin();
   this.emit();
 };
 Engine.prototype.queueAccent=function(){this.accentQ=true;this.emit();};
@@ -871,7 +954,8 @@ Engine.prototype.setBpm=function(n, fromTrack){
   this.bpm=fromTrack ? Math.round(Math.min(240,Math.max(40,n))*1000)/1000 : Math.round(Math.min(240,Math.max(40,n)));
   if(this.track&&this.track.nativeBpm) this.track.rate=fromTrack?1:this.bpm/this.track.nativeBpm;
   if(this.track&&this.track.src) this.track.src.playbackRate.value=this.track.rate||1;
-  if(this.playing&&this.track&&this.track.buffer&&prev){
+  if(this.track&&this.track.media) this.track.media.playbackRate=this.track.rate||1;
+  if(this.playing&&this.track&&(this.track.buffer||this.track.media)&&prev){
     var six=60/this.bpm/4;
     this.origin=this.nextT-this.clockStep*six;
   }
@@ -963,8 +1047,10 @@ Engine.prototype.loadTrack=function(file){
       return;
     }
     if(a&&a.bpm) self.setBpm(a.bpm, true);
-    self.trackAiMessage="Locked at "+(Math.round(self.bpm*10)/10)+" BPM — kick on beat 1.";
-    if(self.playing) self.lockTrack();
+    self.trackAiMessage=a&&a.media
+      ? "WebM loaded. Using the song BPM — nudge if the kick misses beat 1."
+      : "Locked at "+(Math.round(self.bpm*10)/10)+" BPM — kick on beat 1.";
+    if(self.playing) self.seekTrack();
     self.emit();
   });
   this.trackAi="off";this.trackAiProgress=0;
@@ -982,16 +1068,17 @@ Engine.prototype.setTrackGuitar=function(on){
   this.emit();
 };
 Engine.prototype.nudgeTrack=function(dir){
-  if(!this.track||!this.track.buffer)return;
+  if(!this.track||!(this.track.buffer||this.track.media))return;
   var six=60/(this.track.nativeBpm||this.bpm||120)/4;
   this.track.nudge=Math.max(-2,(this.track.nudge||0)+dir*six);
-  if(this.playing) this.lockTrack();
+  if(this.playing) this.seekTrack();
   else this.emit();
 };
+Engine.prototype.setCountIn=function(on){ this.countInOn=on; this.emit(); };
 Engine.prototype.setLiveLock=function(on){
   this.liveLockOn=on;
   if(this.live){
-    this.live.enabled=on&&this.track&&this.track.buffer;
+    this.live.enabled=on&&this.track&&(this.track.buffer||this.track.media);
     if(on&&this.playing) this.live.reset(this.origin,this.bpm, this.ctx.currentTime+2);
     else this.live.suspend();
   }
@@ -1031,66 +1118,70 @@ Engine.prototype.startSplit=function(file){
   reader.readAsArrayBuffer(file);
 };
 Engine.prototype.begin=function(){
-  if(!this.playing||!this.ctx||this.clock)return;
+  if(!this.playing||!this.ctx||this.clock||this.arming)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
-  this.clock=true;
-  this.drumLag=0; this.songLag=0;
-  if(this.track&&this.track.setAlign) this.track.setAlign(0);
-  if(this.drumAlign) this.drumAlign.delayTime.value=0;
-  var when=this.ctx.currentTime+.18;
-  var six=60/(this.bpm||120)/4;
-  var resume=this.hold; this.hold=null;
-  if(resume){
-    this.clockStep=resume.clockStep; this.partIndex=resume.partIndex; this.step=resume.step;
-    this.inFill=resume.inFill; this.fillStep=resume.fillStep||0;
-    this.origin=when-this.clockStep*six; this.nextT=when;
-    if(this.track)this.track.play(when, this.clockStep*six);
-  } else {
-    this.clockStep=0; this.origin=when; this.nextT=when;
-    if(this.track)this.track.play(when, 0);
-  }
-  if(this.live){
-    this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
-    this.live.reset(this.origin,this.bpm, when+(60/Math.max(this.bpm,40))*8);
-  }
-  clearInterval(this.timer);
+  this.arming=true;
   var self=this;
-  this.timer=setInterval(function(){self.sched();},25);
-  this.sched();
+  var resume=this.hold; this.hold=null;
+  var beat=60/(this.bpm||120);
+  var six=beat/4;
+  var transport=resume?resume.clockStep*six:0;
+  var after=function(){
+    if(!self.playing||!self.ctx){ self.arming=false; return; }
+    self.clock=true; self.arming=false;
+    self.drumLag=0; self.songLag=0;
+    if(self.track&&self.track.setAlign) self.track.setAlign(0);
+    if(self.drumAlign) self.drumAlign.delayTime.value=0;
+    var countIn=self.countInOn&&!resume&&self.track&&(self.track.buffer||self.track.media);
+    var clickAt=self.ctx.currentTime+0.3;
+    var when=countIn?clickAt+beat*4:clickAt;
+    if(countIn&&self.synth){
+      for(var i=0;i<4;i++){
+        var t=clickAt+i*beat;
+        self.synth.trig("kick",t,i===0?1:0.5);
+        self.synth.trig("hat",t,i===3?1:0.75);
+      }
+    }
+    if(resume){
+      self.clockStep=resume.clockStep; self.partIndex=resume.partIndex; self.step=resume.step;
+      self.inFill=resume.inFill; self.fillStep=resume.fillStep||0;
+      self.origin=when-self.clockStep*six; self.nextT=when;
+      if(self.track)self.track.play(when, transport);
+    } else {
+      self.clockStep=0; self.origin=when; self.nextT=when;
+      if(self.track)self.track.play(when, 0);
+    }
+    if(self.live){
+      self.live.enabled=self.liveLockOn&&self.track&&(self.track.buffer||self.track.media);
+      self.live.reset(self.origin,self.bpm, when+beat*8);
+    }
+    clearInterval(self.timer);
+    self.timer=setInterval(function(){self.sched();},25);
+    self.sched();
+    self.emit();
+  };
+  if(this.track&&this.track.prepare) this.track.prepare(transport).then(after).catch(after);
+  else after();
+};
+Engine.prototype.seekTrack=function(){
+  if(!this.playing||!this.ctx||!this.track)return;
+  var when=this.ctx.currentTime+.12;
+  this.track.play(when, this.origin?Math.max(0, when-this.origin):0);
 };
 Engine.prototype.lockTrack=function(){
-  if(!this.playing||!this.ctx||!this.track)return;
-  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;this.hold=null;
-  var when=this.ctx.currentTime+.18;
-  this.origin=when; this.nextT=when;
-  this.drumLag=0; this.songLag=0;
-  if(this.track&&this.track.setAlign) this.track.setAlign(0);
-  if(this.drumAlign) this.drumAlign.delayTime.value=0;
-  this.track.play(when, 0);
-  if(this.live){
-    this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
-    this.live.reset(when,this.bpm, when+(60/Math.max(this.bpm,40))*8);
-  }
+  this.seekTrack();
 };
 Engine.prototype.reattach=function(){
-  if(!this.playing||!this.ctx||!this.track||!this.track.buffer||!this.clock)return;
-  if(this.track.src) return;
+  if(!this.playing||!this.ctx||!this.track||!(this.track.buffer||this.track.media)||!this.clock)return;
+  if(this.track.src || (this.track.media && !this.track.media.paused)) return;
   var when=this.ctx.currentTime+.08;
   this.track.play(when, Math.max(0, when-this.origin));
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
-  if(this.live&&this.liveLockOn&&this.track&&this.track.buffer){
-    this.live.poll(this.ctx.currentTime);
-    var slip=this.live.consumeSlip();
-    if(slip){
-      if(slip>0) this.drumLag=Math.min(.08,(this.drumLag||0)+slip);
-      else this.songLag=Math.min(.08,(this.songLag||0)-slip);
-      var d=(this.drumLag||0)-(this.songLag||0);
-      this.drumLag=d>0?d:0; this.songLag=d<0?-d:0;
-      if(this.track.setAlign) this.track.setAlign(this.songLag);
-      if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(this.drumLag, this.ctx.currentTime, .06);
-    }
+  if(this.live&&this.liveLockOn&&this.track&&(this.track.buffer||this.track.media)){
+    if(this.track.setAlign) this.track.setAlign(0);
+    if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(0, this.ctx.currentTime, .04);
   }
   var guard=0;
   while(this.nextT<this.ctx.currentTime+.25 && guard<48){
@@ -1138,9 +1229,9 @@ Engine.prototype.advance=function(){
   var part=this.song.parts[this.partIndex];
   var six=60/(this.bpm||120)/4;
   var odd=(this.inFill?this.fillStep:this.step)%2===1;
-  var sw=(this.track&&this.track.buffer)?0:(part&&part.swing||0);
+  var sw=(this.track&&(this.track.buffer||this.track.media))?0:(part&&part.swing||0);
   this.clockStep=(this.clockStep||0)+1;
-  if(this.track&&this.track.buffer) this.nextT=this.origin+this.clockStep*six;
+  if(this.track&&(this.track.buffer||this.track.media)) this.nextT=this.origin+this.clockStep*six;
   else this.nextT+=odd?six*(1+sw*.55):six*(1-sw*.55);
   if(this.inFill){this.fillStep++; if(this.fillStep>=16){this.inFill=false; this.advancePart(); this.step=0;} return;}
   this.step++;
@@ -1189,6 +1280,7 @@ function paint(st){
   $("ailock").disabled=!st.trackName;
   $("ailock").classList.toggle("on",!!st.trackName&&!!st.liveLockOn);
   $("ailock").textContent=st.liveLock==="locked"?"AI LOCK · LIVE":st.liveLock==="listening"?"AI LOCK · LISTENING":"AI LOCK";
+  $("countin").classList.toggle("on",!!st.countInOn);
   $("trackvocals").disabled=!st.trackName;
   $("trackguitar").disabled=!st.trackName;
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
@@ -1243,6 +1335,7 @@ press($("findinst"),function(){
   window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(song.title+" "+song.artist+" instrumental"),"_blank","noopener,noreferrer");
 });
 press($("ailock"),function(){if(engine.track&&engine.track.name)engine.setLiveLock(!engine.liveLockOn);});
+press($("countin"),function(){engine.setCountIn(!engine.countInOn);});
 press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
 press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
 press($("songearly"),function(){engine.nudgeTrack(1);});
