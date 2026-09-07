@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish -->
+  <!-- pages-redeploy 2026-09-07-full-kit -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -61,6 +61,8 @@
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
     @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
     .band-list { max-height: 13rem; overflow-y: auto; border-radius: .75rem; background: var(--bg); box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
+    .kit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem .4rem; margin: 0 0 .7rem; }
+    .kit-grid span { font-size: .8rem; color: var(--fg); background: #23211d; border-radius: .55rem; padding: .4rem .6rem; }
     .band-group { color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; margin: .45rem .75rem .15rem; }
     .band-row { width: 100%; display: block; text-align: left; background: transparent; border: 0; color: inherit; border-radius: .5rem; padding: .55rem .75rem; font: inherit; }
     .band-row.on { background: rgb(215 178 74 / .15); box-shadow: 0 0 0 1px var(--gold); }
@@ -155,6 +157,14 @@
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
       </div>
+      <p class="label">Drum kit</p>
+      <div class="kit-grid">
+        <span>Bass drum</span><span>Snare</span><span>Rim</span>
+        <span>Closed hat</span><span>Open hat</span><span>Pedal hat</span>
+        <span>High tom</span><span>Mid tom</span><span>Floor tom</span>
+        <span>Crash</span><span>Splash</span><span>China</span>
+        <span>Ride</span>
+      </div>
       <p class="label">Percussion</p>
       <button class="inst" id="cowbell" type="button">COWBELL</button>
       <p class="label">Band</p>
@@ -178,22 +188,22 @@ var SEEDS = [
   {id:"sweet-home-alabama",title:"Sweet Home Alabama",artist:"Lynyrd Skynyrd",bpm:98,feel:"southern"},
 ];
 var FILLS = {
-  country:{kick:"2000000010000000",snare:"0000100010101111",hat:"2121212100000000",tom:"0000000022001100",crash:"0000000000000001"},
-  folk:{kick:"2000000000000000",snare:"0000000010001111",hat:"2000100000000000",tom:"0000000011001100",crash:"0000000000000001"},
-  ballad:{kick:"2000000000000000",snare:"0000000010001011",ride:"2000100000000000",crash:"0000000000000001"},
-  rock:{kick:"2000001000001000",snare:"0000100010101111",hat:"2020202000000000",tom:"0000002222000000",crash:"0000000000000001"},
-  pop:{kick:"2000200020000000",snare:"0000100011111111",hat:"2020202000000000",crash:"0000000000000001"},
-  southern:{kick:"2000001000000000",snare:"0000100000101111",hat:"2020202000000000",crash:"0000000000000001"},
-  hiphop:{kick:"2000000020001000",snare:"0000200000002011",hat:"2020202000000000",clap:"0000000000002200",crash:"0000000000000001"},
+  country:{kick:"2000000010000000",snare:"0000100010000000",hat:"2121212100000000",highTom:"0000000022000000",tom:"0000000000220000",floor:"0000000000002211",splash:"0000000000000010",crash:"0000000000000001"},
+  folk:{kick:"2000000000000000",snare:"0000000010000000",highTom:"0000000002000000",tom:"0000000000201100",floor:"0000000000002211",crash:"0000000000000001"},
+  ballad:{kick:"2000000000000000",snare:"0000000010000000",ride:"2000100000000000",highTom:"0000000002000000",tom:"0000000000200000",floor:"0000000000022200",crash:"0000000000000001"},
+  rock:{kick:"2000001000001000",snare:"0000100010000000",hat:"2020202000000000",highTom:"0000002200000000",tom:"0000000022000000",floor:"0000000000221100",china:"0000000000000010",crash:"0000000000000001"},
+  pop:{kick:"2000200020000000",snare:"0000100010000000",highTom:"0000000022000000",tom:"0000000000220000",floor:"0000000000001111",splash:"0000000000000010",crash:"0000000000000001"},
+  southern:{kick:"2000001000000000",snare:"0000100000100000",hat:"2020202000000000",highTom:"0000000022000000",tom:"0000000000110000",floor:"0000000000002211",china:"0000000000000010",crash:"0000000000000001"},
+  hiphop:{kick:"2000000020001000",snare:"0000200000000000",hat:"2020202000000000",clap:"0000000000002200",highTom:"0000000002000000",tom:"0000000000200000",floor:"0000000000021100",crash:"0000000000000001"},
 };
 var G = {
-  country:{s:.22,i:{kick:"2000000020000000",rim:"0000200000002000",hat:"2121212121212121"},v:{kick:"2000000020000000",snare:"0000200000002000",hat:"2121212121212121",rim:"0030003000300030"},c:{kick:"2000001020001000",snare:"0000200000002000",hat:"2121212121212101",openHat:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000000020000000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"}},
+  country:{s:.22,i:{kick:"2000000020000000",rim:"0000200000002000",hat:"2121212121212121"},v:{kick:"2000000020000000",snare:"0000200000002000",hat:"2121212121212121",rim:"0030003000300030"},c:{kick:"2000001020001000",snare:"0000200000002000",hat:"2121212121212101",openHat:"0000000000000010",splash:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000000020000000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"}},
   folk:{s:.08,i:{kick:"2000000000000000",rim:"0000000020000000",hat:"2000100020001000"},v:{kick:"2000000020000000",rim:"0000200000002000",hat:"2000100020001000"},c:{kick:"2000000020000000",snare:"0000200000002000",hat:"2000100020001000",crash:"2000000000000000"},o:{kick:"2000000000000000",rim:"0000000020000000",ride:"2000200020002000"}},
   ballad:{s:0,i:{kick:"2000000000000000",ride:"2000200020002000"},v:{kick:"2000000000000000",snare:"0000000020000000",ride:"2000200020002000"},c:{kick:"2000000020000000",snare:"0000000020000000",ride:"2020202020202020",crash:"2000000000000000"},o:{kick:"2000000000000000",snare:"0000000020000000",ride:"2000000020000000"}},
-  rock:{s:0,i:{kick:"2000001000000000",snare:"0000200000002000",hat:"2020202020202020"},v:{kick:"2000001000000000",snare:"0000200000002000",hat:"2121212121212121"},c:{kick:"2000101020001010",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000001000100010",snare:"0000200000002000",hat:"2020202020202020"}},
-  pop:{s:0,i:{kick:"2000200020002000",snare:"0000200000002000",hat:"2020202020202020"},v:{kick:"2000200020002000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"},c:{kick:"2010201020102010",snare:"0000200000002000",hat:"2121212121212101",openHat:"0000000000000010",clap:"0000200000002000",crash:"2000000000000000"},o:{kick:"2000200020002000",snare:"0000200000002000",ride:"2020202020202020"}},
-  southern:{s:.16,i:{kick:"2000001020000000",snare:"0000200300002000",hat:"2020202020202020",crash:"2000000000000000"},v:{kick:"2000001020000000",snare:"0000200300002003",hat:"2020202020202020"},c:{kick:"2000101020001010",snare:"0000200000002000",hat:"2020202020202002",openHat:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000001020000000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"}},
-  hiphop:{s:.14,i:{kick:"2000000000002000",hat:"2000200020002000"},v:{kick:"2000000020001000",snare:"0000200000002000",hat:"2020202020202020"},c:{kick:"2000200020002010",snare:"0000200000002000",hat:"2120212021202101",openHat:"0000000000000010",clap:"0000200000002000",crash:"2000000000000000"},o:{kick:"2000000000002000",snare:"0000200000002000",hat:"2000200020002000"}},
+  rock:{s:0,i:{kick:"2000001000000000",snare:"0000200000002000",hat:"2020202020202020"},v:{kick:"2000001000000000",snare:"0000200000002000",hat:"2121212121212121"},c:{kick:"2000101020001010",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010",splash:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000001000100010",snare:"0000200000002000",hat:"2020202020202020",highTom:"0000000000300000",floor:"0000000000002000"}},
+  pop:{s:0,i:{kick:"2000200020002000",snare:"0000200000002000",hat:"2020202020202020"},v:{kick:"2000200020002000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"},c:{kick:"2010201020102010",snare:"0000200000002000",hat:"2121212121212101",openHat:"0000000000000010",clap:"0000200000002000",splash:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000200020002000",snare:"0000200000002000",ride:"2020202020202020"}},
+  southern:{s:.16,i:{kick:"2000001020000000",snare:"0000200300002000",hat:"2020202020202020",crash:"2000000000000000"},v:{kick:"2000001020000000",snare:"0000200300002003",hat:"2020202020202020"},c:{kick:"2000101020001010",snare:"0000200000002000",hat:"2020202020202002",openHat:"0000000000000010",china:"0000000000001000",crash:"2000000000000000"},o:{kick:"2000001020000000",snare:"0000200000002000",hat:"2020202020202000",openHat:"0000000000000010"}},
+  hiphop:{s:.14,i:{kick:"2000000000002000",hat:"2000200020002000"},v:{kick:"2000000020001000",snare:"0000200000002000",hat:"2020202020202020"},c:{kick:"2000200020002010",snare:"0000200000002000",hat:"2120212021202101",openHat:"0000000000000010",clap:"0000200000002000",splash:"0000000000000010",crash:"2000000000000000"},o:{kick:"2000000000002000",snare:"0000200000002000",hat:"2000200020002000"}},
 };
 var LABELS={country:"Country train",folk:"Folk two-step",ballad:"Half-time ballad",rock:"Rock",pop:"Four-on-the-floor",southern:"Southern shuffle",hiphop:"Hip hop boom-bap"};
 var STYLES=[{id:"country",label:"Country"},{id:"rock",label:"Rock"},{id:"hiphop",label:"Hip hop"},{id:"pop",label:"Pop"},{id:"folk",label:"Folk"},{id:"ballad",label:"Ballad"},{id:"southern",label:"Southern"}];
@@ -310,13 +320,22 @@ Synth.prototype.hat=function(t,v,dec){
   var n=this.ns(t,dec+.04);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=6800;
   var g=this.env(t,(dec>.1?.26:.22)*v,.001,dec);n.connect(hp);hp.connect(g);g.connect(this.dest);
 };
-Synth.prototype.crash=function(t,v){
-  var n=this.ns(t,.9);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=5000;
-  var g=this.env(t,.45*v,.002,.8);n.connect(hp);hp.connect(g);g.connect(this.dest);
+Synth.prototype.crash=function(t,v){ this.cymbal(t,v,900,3400,1.05,.42,false); };
+Synth.prototype.cymbal=function(t,v,hpF,bpF,dec,peak,trash){
+  var n=this.ns(t,dec+.15); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=hpF;
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=bpF; bp.Q.value=trash?.4:.7;
+  var g=this.env(t,peak*v,.002,dec); n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.dest);
+  var a=this.ctx.createOscillator(); a.type="square"; a.frequency.setValueAtTime(trash?311:415,t);
+  var b=this.ctx.createOscillator(); b.type="square"; b.frequency.setValueAtTime(trash?466:622,t);
+  var mhp=this.ctx.createBiquadFilter(); mhp.type="highpass"; mhp.frequency.value=hpF;
+  var mg=this.env(t,(trash?.09:.05)*v,.001,dec*.7);
+  a.connect(mhp); b.connect(mhp); mhp.connect(mg); mg.connect(this.dest);
+  a.start(t); b.start(t); a.stop(t+dec); b.stop(t+dec);
 };
-Synth.prototype.tom=function(t,v,f){
-  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*.6,t+.18);
-  var g=this.env(t,.7*v,.003,.2);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.25);
+Synth.prototype.tom=function(t,v,f,dec){
+  dec=dec||.22;
+  var o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*.55,t+dec*.7);
+  var g=this.env(t,.78*v,.003,dec); o.connect(g); g.connect(this.dest); o.start(t); o.stop(t+dec+.08);
 };
 Synth.prototype.cowbell=function(t,v){
   var a=this.ctx.createOscillator();a.type="square";a.frequency.setValueAtTime(845,t);
@@ -330,14 +349,19 @@ Synth.prototype.cowbell=function(t,v){
 Synth.prototype.trig=function(voice,t,v){
   v=Math.max(.05,Math.min(1.4,v));
   if(voice==="kick")this.kick(t,v);
-  else if(voice==="snare"||voice==="clap")this.snare(t,v);
-  else if(voice==="rim")this.tom(t,v*.8,420);
+  else if(voice==="snare")this.snare(t,v);
+  else if(voice==="clap")this.snare(t,v*.9);
+  else if(voice==="rim")this.tom(t,v*.8,420,.08);
   else if(voice==="hat")this.hat(t,v,.05);
-  else if(voice==="openHat")this.hat(t,v,.24);
-  else if(voice==="ride")this.hat(t,v,.4);
-  else if(voice==="crash")this.crash(t,v);
-  else if(voice==="tom")this.tom(t,v,160);
-  else if(voice==="floor")this.tom(t,v,95);
+  else if(voice==="openHat")this.hat(t,v,.28);
+  else if(voice==="pedalHat")this.hat(t,v*.85,.028);
+  else if(voice==="ride")this.hat(t,v,.42);
+  else if(voice==="crash")this.cymbal(t,v,900,3400,1.05,.42,false);
+  else if(voice==="splash")this.cymbal(t,v,4200,7200,.22,.32,false);
+  else if(voice==="china")this.cymbal(t,v,1100,2800,.55,.38,true);
+  else if(voice==="highTom")this.tom(t,v,235,.18);
+  else if(voice==="tom")this.tom(t,v,155,.24);
+  else if(voice==="floor")this.tom(t,v,88,.34);
   else if(voice==="cowbell")this.cowbell(t,v);
 };
 Synth.prototype.bass=function(t,v,f){
@@ -774,12 +798,13 @@ Engine.prototype.schedStep=function(when){
   var pattern=this.inFill?part.fill:part.groove;
   var st=this.inFill?this.fillStep%16:this.step%16;
   if(this.accentQ&&st===0){this.synth.trig("crash",when,1);this.accentQ=false;}
-  var voices=["kick","snare","hat","openHat","ride","tom","floor","crash","rim","clap"];
+  var voices=["kick","snare","rim","hat","openHat","pedalHat","highTom","tom","floor","crash","splash","china","ride","clap"];
   var stepIdx=this.inFill?this.fillStep:this.step;
   var openV=hit(pattern.openHat,stepIdx);
+  var pedalV=hit(pattern.pedalHat,stepIdx);
   for(var i=0;i<voices.length;i++){
     var v=voices[i];
-    if(v==="hat"&&openV)continue;
+    if(v==="hat"&&(openV||pedalV))continue;
     var velo=hit(pattern[v],stepIdx);if(velo)this.synth.trig(v,when,velo);
   }
   if(this.cowbellOn&&!this.inFill){
