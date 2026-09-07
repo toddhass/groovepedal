@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-pause -->
+  <!-- pages-redeploy 2026-09-07-publish-smooth -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -359,9 +359,9 @@ Synth.prototype.trig=function(voice,t,v){
   else if(voice==="snare")this.snare(t,v);
   else if(voice==="clap")this.snare(t,v*.9);
   else if(voice==="rim")this.tom(t,v*.8,420,.08);
-  else if(voice==="hat")this.hat(t,v,.05);
-  else if(voice==="openHat")this.hat(t,v,.28);
-  else if(voice==="pedalHat")this.hat(t,v*.85,.028);
+  else if(voice==="hat")this.hat(t,v,.09);
+  else if(voice==="openHat")this.hat(t,v,.32);
+  else if(voice==="pedalHat")this.hat(t,v*.85,.045);
   else if(voice==="ride")this.hat(t,v,.42);
   else if(voice==="crash")this.cymbal(t,v,900,3400,1.05,.42,false);
   else if(voice==="splash")this.cymbal(t,v,4200,7200,.22,.32,false);
@@ -535,6 +535,7 @@ function PracticeTrack(ctx, dest){
   var rs=ctx.createGain(); rs.gain.value=-1;
   var merge=ctx.createChannelMerger(2);
   this.out=ctx.createGain(); this.out.gain.value=.9;
+  this.gate=ctx.createGain(); this.align=ctx.createDelay(0.25); this.align.delayTime.value=0;
   this.split.connect(midL,0); this.split.connect(midR,1); midL.connect(mid); midR.connect(mid);
   this.split.connect(sideL,0); this.split.connect(sideR,1); sideL.connect(this.guitarGain); sideR.connect(this.guitarGain);
   mid.connect(midLow); mid.connect(midHigh); midHigh.connect(this.vocalsGain); this.vocalsGain.connect(this.body); this.body.connect(this.air);
@@ -543,13 +544,14 @@ function PracticeTrack(ctx, dest){
   this.air.connect(merge,0,0); this.air.connect(merge,0,1);
   this.cutC.connect(ls); ls.connect(merge,0,0);
   this.cutC.connect(rs); rs.connect(merge,0,1);
-  merge.connect(this.out); this.out.connect(dest);
+  merge.connect(this.out); this.out.connect(this.gate); this.gate.connect(this.align); this.align.connect(dest);
 }
 PracticeTrack.prototype.stopSrc=function(){
-  if(!this.src)return;
-  try{this.src.stop();}catch(e){}
-  try{this.src.disconnect();}catch(e){}
-  this.src=null;
+  var src=this.src; this.src=null;
+  if(!src)return;
+  var now=this.ctx.currentTime;
+  try{ this.gate.gain.cancelScheduledValues(now); this.gate.gain.setTargetAtTime(0.0001,now,.01); src.stop(now+.05);}catch(e){ try{src.stop();}catch(x){} }
+  setTimeout(function(){ try{src.disconnect();}catch(e){} },80);
 };
 PracticeTrack.prototype.play=function(when, transport){
   this.wantPlay=true;
@@ -578,8 +580,14 @@ PracticeTrack.prototype.play=function(when, transport){
     if(span>0) off=cue+(((off-cue)%span)+span)%span;
   }
   if(off>=duration)return;
+  this.gate.gain.cancelScheduledValues(startAt);
+  this.gate.gain.setValueAtTime(0.0001,startAt);
+  this.gate.gain.linearRampToValueAtTime(1,startAt+.035);
   src.start(startAt, off);
   this.src=src;
+};
+PracticeTrack.prototype.setAlign=function(sec){
+  this.align.delayTime.setTargetAtTime(Math.max(0,Math.min(.1,sec||0)), this.ctx.currentTime, .05);
 };
 PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
 PracticeTrack.prototype.rewind=function(){ if(this.wantPlay) this.play(); };
@@ -781,8 +789,9 @@ Engine.prototype.unlock=function(){
       var drums=this.ctx.createGain();
       var comp=this.ctx.createDynamicsCompressor();comp.threshold.value=-12;comp.ratio.value=2.5;
       var makeup=this.ctx.createGain();makeup.gain.value=1.8;
+      this.drumAlign=this.ctx.createDelay(0.25); this.drumAlign.delayTime.value=0;
       this.master=this.ctx.createGain();
-      drums.connect(comp);comp.connect(makeup);makeup.connect(this.master);this.master.connect(this.ctx.destination);
+      drums.connect(comp);comp.connect(makeup);makeup.connect(this.drumAlign);this.drumAlign.connect(this.master);this.master.connect(this.ctx.destination);
       this.synth=new Synth(this.ctx,drums);
       this.track=new PracticeTrack(this.ctx,this.master);
       this.live=new LiveLock(this.ctx);
@@ -1004,6 +1013,9 @@ Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
   this.clock=true;
+  this.drumLag=0; this.songLag=0;
+  if(this.track&&this.track.setAlign) this.track.setAlign(0);
+  if(this.drumAlign) this.drumAlign.delayTime.value=0;
   var when=this.ctx.currentTime+.18;
   var six=60/(this.bpm||120)/4;
   var resume=this.hold; this.hold=null;
@@ -1030,6 +1042,9 @@ Engine.prototype.lockTrack=function(){
   this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;this.hold=null;
   var when=this.ctx.currentTime+.18;
   this.origin=when; this.nextT=when;
+  this.drumLag=0; this.songLag=0;
+  if(this.track&&this.track.setAlign) this.track.setAlign(0);
+  if(this.drumAlign) this.drumAlign.delayTime.value=0;
   this.track.play(when, 0);
   if(this.live){
     this.live.enabled=this.liveLockOn&&this.track&&this.track.buffer;
@@ -1038,6 +1053,7 @@ Engine.prototype.lockTrack=function(){
 };
 Engine.prototype.reattach=function(){
   if(!this.playing||!this.ctx||!this.track||!this.track.buffer||!this.clock)return;
+  if(this.track.src) return;
   var when=this.ctx.currentTime+.08;
   this.track.play(when, Math.max(0, when-this.origin));
 };
@@ -1046,8 +1062,12 @@ Engine.prototype.sched=function(){
   if(this.live&&this.liveLockOn&&this.track&&this.track.buffer){
     var slip=this.live.consumeSlip();
     if(slip){
-      var when=this.ctx.currentTime+.04;
-      this.track.play(when, Math.max(0, when-this.origin+slip));
+      if(slip>0) this.drumLag=Math.min(.08,(this.drumLag||0)+slip);
+      else this.songLag=Math.min(.08,(this.songLag||0)-slip);
+      var d=(this.drumLag||0)-(this.songLag||0);
+      this.drumLag=d>0?d:0; this.songLag=d<0?-d:0;
+      if(this.track.setAlign) this.track.setAlign(this.songLag);
+      if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(this.drumLag, this.ctx.currentTime, .06);
     }
   }
   while(this.nextT<this.ctx.currentTime+.25){
