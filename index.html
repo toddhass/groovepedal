@@ -41,6 +41,11 @@
     .sl span:last-child { width: 2.5rem; flex-shrink: 0; text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; }
     input[type=range] { flex: 1; min-width: 0; appearance: none; height: 2.5rem; background: linear-gradient(to right, var(--gold) 0 var(--pct,50%), var(--dim) var(--pct,50%) 100%); background-size: 100% .28rem; background-repeat: no-repeat; background-position: center; }
     input[type=range]::-webkit-slider-thumb { appearance: none; width: 1.15rem; height: 1.15rem; border-radius: 999px; background: var(--fg); }
+    .label { color: var(--muted); font-size: .875rem; margin: 0 0 .35rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .chip, .inst { min-height: 2.75rem; border: 0; border-radius: .75rem; background: #23211d; color: var(--fg); font-family: Oswald, sans-serif; letter-spacing: .14em; font-size: .75rem; padding: 0 .75rem; }
+    .chip.on, .inst.on { background: var(--gold); color: #1a160c; }
+    .inst { width: 100%; font-size: .875rem; }
     .foot { text-align: center; color: var(--muted); font-size: .75rem; }
     .empty { padding: 1.5rem .75rem; text-align: center; color: var(--muted); font-size: .875rem; }
     .player { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
@@ -112,13 +117,20 @@
       <button class="pedal crash wide" id="accent" type="button">ACCENT / CRASH</button>
     </div>
     <div class="sliders">
+      <p class="label">Groove style</p>
+      <div class="chips" id="styles"></div>
+      <p class="label">Instruments</p>
+      <div class="grid">
+        <button class="inst" id="bass" type="button">BASS</button>
+        <button class="inst" id="trumpet" type="button">TRUMPET</button>
+      </div>
       <label class="sl">Tempo <input id="bpm" type="range" min="40" max="240" value="120" /> <span id="bpmv">120</span></label>
       <label class="sl">Volume <input id="vol" type="range" min="0" max="100" value="100" /> <span id="volv">100</span></label>
     </div>
     </div>
     <p class="foot">GroovePedal is a software drum machine. Not affiliated with any hardware pedal.</p>
   </div>
-  <script src="data.js"></script>
-  <script src="engine.js"></script>
+  <script src="./data.js"></script>
+  <script src="./engine.js"></script>
 </body>
 </html>
