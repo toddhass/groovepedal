@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-apple-preview -->
+  <!-- pages-redeploy 2026-09-07-no-autodemucs -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -150,7 +150,7 @@
       <p class="track-name" id="trackname">No file loaded</p>
       <p class="hint" id="trackai"></p>
       <div class="ai-bar" id="aibarwrap" hidden><div class="ai-fill" id="aibar"></div></div>
-      <button class="inst" id="retryai" type="button" hidden>RETRY AI SPLIT</button>
+      <button class="inst" id="retryai" type="button" hidden>AI SPLIT</button>
       <div class="inst-grid">
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
@@ -689,12 +689,13 @@ Engine.prototype.setCowbell=function(on){
 };
 Engine.prototype.loadTrack=function(file){
   this.unlock();
+  this.splitToken=(this.splitToken||0)+1;
   if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
   this.practiceFile=file;
   if(this.track)this.track.load(file);
-  this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";
+  this.trackAi="off";this.trackAiProgress=0;
+  this.trackAiMessage="Preview loaded. Hit START. Tap AI SPLIT only if you need the guitar pulled.";
   this.emit();
-  this.startSplit(file);
 };
 Engine.prototype.setTrackVocals=function(on){
   this.unlock();
@@ -722,7 +723,9 @@ Engine.prototype.startSplit=function(file){
         if(token!==self.splitToken)return;
         var left=rendered.getChannelData(0).slice(), right=rendered.getChannelData(1).slice();
         var blob=new Blob([DEMUCS_WORKER_SRC],{type:"text/javascript"});
-        var worker=new Worker(URL.createObjectURL(blob));
+        var worker;
+        try{ worker=new Worker(URL.createObjectURL(blob)); }
+        catch(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="AI worker unavailable"; self.emit(); return; }
         worker.onmessage=function(ev){
           if(token!==self.splitToken){ worker.terminate(); return; }
           var msg=ev.data;
@@ -730,7 +733,7 @@ Engine.prototype.startSplit=function(file){
           else if(msg.type==="done"){ worker.terminate(); self.track.setStems(msg.stems); self.trackAi="ready"; self.trackAiProgress=1; self.trackAiMessage="AI mix ready — guitar is its own stem"; self.emit(); }
           else if(msg.type==="error"){ worker.terminate(); self.trackAi="error"; self.trackAiMessage=msg.message||"AI split failed"; self.emit(); }
         };
-        worker.onerror=function(e){ worker.terminate(); if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=e.message||"AI worker failed"; self.emit(); };
+        worker.onerror=function(e){ try{e.preventDefault();}catch(x){} worker.terminate(); if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=e.message||"AI worker failed"; self.emit(); };
         worker.postMessage({type:"separate",left:left,right:right},[left.buffer,right.buffer]);
       }).catch(function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=String(err); self.emit(); });
     }, function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="Could not decode audio"; self.emit(); });
@@ -836,10 +839,11 @@ function paint(st){
   $("trackguitar").disabled=!st.trackName;
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
   $("trackguitar").classList.toggle("on",!!st.trackName&&!!st.trackGuitarOn);
-  $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off to remove the real guitar stem":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":""):"";
+  $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":(st.trackAiMessage||"Hit START to play. Guitar off uses a quick mute until you AI-split.")):"";
   $("aibarwrap").hidden=!(st.trackName&&st.trackAi==="working");
   $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
-  $("retryai").hidden=!(st.trackName&&st.trackAi==="error");
+  $("retryai").hidden=!(st.trackName&&st.trackAi!=="working"&&st.trackAi!=="ready");
+  $("retryai").textContent=st.trackAi==="error"?"RETRY AI SPLIT":"AI SPLIT";
 }
 engine.sub(paint); engine.load(song); renderList(); paint(); searchApple();
 function press(el,fn){
