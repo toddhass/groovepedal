@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-sync -->
+  <!-- pages-redeploy 2026-09-07-publish-lock -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -156,6 +156,10 @@
       <div class="inst-grid">
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
+      </div>
+      <div class="inst-grid" id="nudgewrap" hidden>
+        <button class="inst" id="songearly" type="button">SONG EARLY</button>
+        <button class="inst" id="songlate" type="button">SONG LATE</button>
       </div>
       <p class="label">Drum kit</p>
       <div class="kit-grid">
@@ -453,8 +457,44 @@ var ENSEMBLES=[
   {id:"baroque",label:"Baroque ensemble",group:"Wind & orchestra",ids:["violin","cello","flute","oboe","piano"]}
 ];
 
+function analyzeTrack(buf, hint){
+  var sr=buf.sampleRate, hop=Math.max(64, Math.round(sr/200));
+  var n=Math.min(buf.length, Math.floor(sr*24));
+  var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
+  var env=[], i, j, acc, s;
+  for(i=0;i+hop<n;i+=hop){
+    acc=0; for(j=0;j<hop;j++){ s=(L[i+j]+R[i+j])*0.5; acc+=s*s; }
+    env.push(Math.sqrt(acc/hop));
+  }
+  if(env.length<32) return {bpm:Math.round(hint||120), offset:0};
+  var flux=[]; for(i=1;i<env.length;i++) flux.push(Math.max(0, env[i]-env[i-1]));
+  var minLag=Math.round(60/180*sr/hop), maxLag=Math.round(60/70*sr/hop);
+  var best=0, bestLag=minLag, lag, c, k;
+  for(lag=minLag; lag<=maxLag; lag++){
+    c=0; for(k=0;k<flux.length-lag;k++) c+=flux[k]*flux[k+lag];
+    if(c>best){best=c;bestLag=lag;}
+  }
+  var bpm=60/(bestLag*hop/sr);
+  var cands=[bpm,bpm*2,bpm/2,bpm*1.5,bpm/1.5], pick=bpm, dist=1e9, h=hint||120, v, d;
+  for(i=0;i<cands.length;i++){
+    v=cands[i]; if(v<60||v>200) continue;
+    d=Math.abs(v-h); if(d<dist){dist=d;pick=v;}
+  }
+  if(Math.abs(pick-h)/h<0.035) bpm=Math.round(h); else bpm=Math.round(Math.min(180,Math.max(60,pick)));
+  var period=(60/bpm)*sr/hop, bestScore=-1, bestOff=0, off, beat, idx, score, search=Math.max(1,Math.floor(period));
+  for(off=0; off<search; off++){
+    score=0;
+    for(beat=0; beat<8; beat++){
+      idx=Math.round(off+beat*period); if(idx>=env.length) break;
+      score+=env[idx]*(beat%4===0?2.2:1);
+    }
+    if(score>bestScore){bestScore=score;bestOff=off;}
+  }
+  return {bpm:bpm, offset:Math.max(0, bestOff*hop/sr-0.004)};
+}
 function PracticeTrack(ctx, dest){
   this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.buffer=null; this.stems=null;
+  this.nativeBpm=0; this.cue=0; this.nudge=0; this.rate=1; this.wantPlay=false;
   this.split=ctx.createChannelSplitter(2);
   var midL=ctx.createGain(); midL.gain.value=.5;
   var midR=ctx.createGain(); midR.gain.value=.5;
@@ -495,9 +535,17 @@ PracticeTrack.prototype.play=function(when){
   if(!this.buffer)return;
   this.stopSrc();
   var src=this.ctx.createBufferSource();
-  src.buffer=this.buffer; src.loop=true; src.connect(this.split);
+  src.buffer=this.buffer; src.connect(this.split);
+  src.playbackRate.value=this.rate||1;
+  var off=Math.max(0, (this.cue||0)+(this.nudge||0));
+  if(off>this.buffer.duration-0.05) off=Math.max(0, this.buffer.duration-0.05);
+  var bar=(4*60)/(this.nativeBpm||120);
+  var remain=Math.max(bar, this.buffer.duration-off);
+  var bars=Math.max(1, Math.floor(remain/bar));
+  src.loop=true; src.loopStart=off; src.loopEnd=Math.min(this.buffer.duration-0.001, off+bars*bar);
+  if(src.loopEnd<=src.loopStart+0.08) src.loop=false;
   var t=Math.max(when||this.ctx.currentTime, this.ctx.currentTime);
-  src.start(t);
+  src.start(t, off);
   this.src=src;
 };
 PracticeTrack.prototype.pause=function(){ this.wantPlay=false; this.stopSrc(); };
@@ -522,9 +570,9 @@ PracticeTrack.prototype.apply=function(){
   this.cutB.gain.setTargetAtTime(this.vocalsOn?0:-28,t,.03);
   this.cutC.gain.setTargetAtTime(this.vocalsOn?0:-20,t,.03);
 };
-PracticeTrack.prototype.load=function(file, onReady){
+PracticeTrack.prototype.load=function(file, hint, onReady){
   var self=this;
-  this.stopSrc(); this.stems=null; this.buffer=null;
+  this.stopSrc(); this.stems=null; this.buffer=null; this.nudge=0; this.rate=1; this.cue=0;
   this.name=file.name.replace(/\.[^.]+$/,"");
   file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw.slice(0)); }).then(function(buf){
     if(buf.numberOfChannels<2){
@@ -533,8 +581,10 @@ PracticeTrack.prototype.load=function(file, onReady){
       stereo.copyToChannel(buf.getChannelData(0),1);
       self.buffer=stereo;
     } else self.buffer=buf;
+    var a=analyzeTrack(self.buffer, hint||120);
+    self.nativeBpm=a.bpm; self.cue=a.offset;
     self.apply();
-    if(onReady) onReady();
+    if(onReady) onReady(a);
     else if(self.wantPlay) self.play();
   });
 };
@@ -618,6 +668,7 @@ function Engine(){
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
+  this.origin=0;this.clockStep=0;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -629,7 +680,9 @@ Engine.prototype.state=function(){
     inFill:this.inFill,fillQ:this.fillQ,nextQ:this.nextQ,accentQ:this.accentQ,volume:this.volume,
     feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble,cowbellOn:this.cowbellOn,
     trackName:this.track&&this.track.name,trackVocalsOn:!this.track||this.track.vocalsOn,trackGuitarOn:!this.track||this.track.guitarOn,
-    trackAi:this.trackAi,trackAiProgress:this.trackAiProgress,trackAiMessage:this.trackAiMessage
+    trackAi:this.trackAi,trackAiProgress:this.trackAiProgress,trackAiMessage:this.trackAiMessage,
+    trackOffset:this.track?Math.max(0,(this.track.cue||0)+(this.track.nudge||0)):0,
+    trackNativeBpm:this.track&&this.track.nativeBpm||0
   };
 };
 Engine.prototype.load=function(song){
@@ -672,7 +725,7 @@ Engine.prototype.apply=function(){
 };
 Engine.prototype.start=function(){
   if(!this.song)return;
-  this.unlock();this.playing=true;this.partIndex=0;this.step=0;this.inFill=false;this.fillQ=false;this.nextQ=false;this.clock=false;
+  this.unlock();this.playing=true;this.partIndex=0;this.step=0;this.inFill=false;this.fillQ=false;this.nextQ=false;this.clock=false;this.clockStep=0;
   this.begin();
   if(!this.track||!this.track.buffer){
     if(this.synth&&this.ctx&&this.ctx.state==="running"){this.synth.trig("kick",this.ctx.currentTime,1);this.synth.trig("hat",this.ctx.currentTime,.9);}
@@ -690,7 +743,17 @@ Engine.prototype.restart=function(){
   this.emit();
 };
 Engine.prototype.queueAccent=function(){this.accentQ=true;this.emit();};
-Engine.prototype.setBpm=function(n){this.bpm=n;this.emit();};
+Engine.prototype.setBpm=function(n){
+  var prev=this.bpm;
+  this.bpm=n;
+  if(this.track&&this.track.nativeBpm) this.track.rate=this.bpm/this.track.nativeBpm;
+  if(this.track&&this.track.src) this.track.src.playbackRate.value=this.track.rate||1;
+  if(this.playing&&this.track&&this.track.buffer&&prev){
+    var six=60/this.bpm/4;
+    this.origin=this.nextT-this.clockStep*six;
+  }
+  this.emit();
+};
 Engine.prototype.setVol=function(n){this.volume=n;this.apply();this.emit();};
 Engine.prototype.setFeel=function(feel){
   if(!this.song||!G[feel])return;
@@ -766,8 +829,9 @@ Engine.prototype.loadTrack=function(file){
   if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
   this.practiceFile=file;
   var self=this;
-  if(this.track)this.track.load(file, function(){
-    self.trackAiMessage="Loaded. Hit START — song and drums start together.";
+  if(this.track)this.track.load(file, this.song&&this.song.bpm||this.bpm, function(a){
+    if(a&&a.bpm) self.setBpm(a.bpm);
+    self.trackAiMessage="Locked at "+self.bpm+" BPM. START hits beat 1 together.";
     if(self.playing) self.lockTrack();
     self.emit();
   });
@@ -784,6 +848,13 @@ Engine.prototype.setTrackGuitar=function(on){
   this.unlock();
   if(this.track){this.track.guitarOn=on;this.track.apply();if(this.track.stems)this.track.rebuild();}
   this.emit();
+};
+Engine.prototype.nudgeTrack=function(dir){
+  if(!this.track||!this.track.buffer)return;
+  var six=60/(this.track.nativeBpm||this.bpm||120)/4;
+  this.track.nudge=Math.max(-2,(this.track.nudge||0)+dir*six);
+  if(this.playing) this.lockTrack();
+  else this.emit();
 };
 Engine.prototype.startSplit=function(file){
   var self=this, token=++this.splitToken;
@@ -821,8 +892,11 @@ Engine.prototype.startSplit=function(file){
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
-  this.clock=true;this.nextT=this.ctx.currentTime+.05;
-  if(this.track)this.track.play(this.nextT);
+  this.clock=true;
+  this.origin=this.ctx.currentTime+.08;
+  this.clockStep=0;
+  this.nextT=this.origin;
+  if(this.track)this.track.play(this.origin);
   clearInterval(this.timer);
   var self=this;
   this.timer=setInterval(function(){self.sched();},25);
@@ -830,17 +904,26 @@ Engine.prototype.begin=function(){
 };
 Engine.prototype.lockTrack=function(){
   if(!this.playing||!this.ctx||!this.track)return;
-  this.partIndex=0;this.step=0;this.inFill=false;
-  var when=this.ctx.currentTime+.05;
-  this.nextT=when;
+  this.partIndex=0;this.step=0;this.inFill=false;this.clockStep=0;
+  var when=this.ctx.currentTime+.08;
+  this.origin=when; this.nextT=when;
   this.track.play(when);
 };
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
-  while(this.nextT<this.ctx.currentTime+.12){this.schedStep(this.nextT);this.advance();}
+  var locked=this.track&&this.track.buffer;
+  while(this.nextT<this.ctx.currentTime+.12){
+    if(locked && this.nextT<this.ctx.currentTime-0.05){
+      var six=60/(this.bpm||120)/4;
+      this.clockStep=Math.max(0, Math.ceil((this.ctx.currentTime-this.origin)/six));
+      this.nextT=this.origin+this.clockStep*six;
+    }
+    this.schedStep(this.nextT);this.advance();
+  }
 };
 Engine.prototype.schedStep=function(when){
   var part=this.song.parts[this.partIndex]; if(!part||!this.synth)return;
+  if(when<this.ctx.currentTime-0.003) return;
   var pattern=this.inFill?part.fill:part.groove;
   var st=this.inFill?this.fillStep%16:this.step%16;
   if(this.accentQ&&st===0){this.synth.trig("crash",when,1);this.accentQ=false;}
@@ -877,8 +960,10 @@ Engine.prototype.advance=function(){
   var part=this.song.parts[this.partIndex];
   var six=60/(this.bpm||120)/4;
   var odd=(this.inFill?this.fillStep:this.step)%2===1;
-  var sw=part&&part.swing||0;
-  this.nextT+=odd?six*(1+sw*.55):six*(1-sw*.55);
+  var sw=(this.track&&this.track.buffer)?0:(part&&part.swing||0);
+  this.clockStep=(this.clockStep||0)+1;
+  if(this.track&&this.track.buffer) this.nextT=this.origin+this.clockStep*six;
+  else this.nextT+=odd?six*(1+sw*.55):six*(1-sw*.55);
   if(this.inFill){this.fillStep++; if(this.fillStep>=16){this.inFill=false; this.advancePart(); this.step=0;} return;}
   this.step++;
   if(this.fillQ && this.step%16===0){this.inFill=true;this.fillStep=0;this.fillQ=false;return;}
@@ -927,6 +1012,7 @@ function paint(st){
   $("trackguitar").disabled=!st.trackName;
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
   $("trackguitar").classList.toggle("on",!!st.trackName&&!!st.trackGuitarOn);
+  $("nudgewrap").hidden=!st.trackName;
   $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":(st.trackAiMessage||"Hit START to play. Guitar off uses a quick mute until you AI-split.")):"";
   $("aibarwrap").hidden=!(st.trackName&&st.trackAi==="working");
   $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
@@ -977,6 +1063,8 @@ press($("findinst"),function(){
 });
 press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
 press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
+press($("songearly"),function(){engine.nudgeTrack(1);});
+press($("songlate"),function(){engine.nudgeTrack(-1);});
 press($("retryai"),function(){if(engine.practiceFile)engine.startSplit(engine.practiceFile);});
 function searchApple(){
   var box=$("applehits");
