@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07 -->
+  <!-- pages-redeploy 2026-09-07-instruments -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -46,7 +46,9 @@
     .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
     .chip, .inst { min-height: 2.75rem; border: 0; border-radius: .75rem; background: #23211d; color: var(--fg); font-family: Oswald, sans-serif; letter-spacing: .14em; font-size: .75rem; padding: 0 .75rem; }
     .chip.on, .inst.on { background: var(--gold); color: #1a160c; }
-    .inst { width: 100%; font-size: .875rem; }
+    .inst { min-height: 2.75rem; width: 100%; font-size: .75rem; }
+    .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+    @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
     .foot { text-align: center; color: var(--muted); font-size: .75rem; }
     .empty { padding: 1.5rem .75rem; text-align: center; color: var(--muted); font-size: .875rem; }
     .player { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
@@ -120,11 +122,10 @@
     <div class="sliders">
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
+      <p class="label">Band</p>
+      <div class="chips" id="ensembles"></div>
       <p class="label">Instruments</p>
-      <div class="grid">
-        <button class="inst" id="bass" type="button">BASS</button>
-        <button class="inst" id="trumpet" type="button">TRUMPET</button>
-      </div>
+      <div id="inst-groups"></div>
       <label class="sl">Tempo <input id="bpm" type="range" min="40" max="240" value="120" /> <span id="bpmv">120</span></label>
       <label class="sl">Volume <input id="vol" type="range" min="0" max="100" value="100" /> <span id="volv">100</span></label>
     </div>
@@ -295,11 +296,66 @@ Synth.prototype.trumpet=function(t,v,f){
   var g=this.env(t,.22*v,.012,.18);a.connect(bp);b.connect(bp);bp.connect(g);g.connect(this.dest);
   a.start(t);b.start(t);a.stop(t+.28);b.stop(t+.28);
 };
+Synth.prototype.tone=function(t,peak,f,type,ft,ff,atk,dec,dur,extra){
+  var o=this.ctx.createOscillator();o.type=type;o.frequency.setValueAtTime(f,t);
+  var fl=this.ctx.createBiquadFilter();fl.type=ft;fl.frequency.value=ff;fl.Q.value=ft==="bandpass"?1.2:.7;
+  var g=this.env(t,peak,atk,dec);o.connect(fl);fl.connect(g);g.connect(this.dest);o.start(t);o.stop(t+dur);
+  if(extra){
+    var h=this.ctx.createOscillator();h.type=extra;h.frequency.setValueAtTime(f*2,t);
+    var hg=this.env(t,peak*.28,atk,dec);h.connect(hg);hg.connect(this.dest);h.start(t);h.stop(t+dur);
+  }
+};
+Synth.prototype.boom=function(t,v,f){
+  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f*1.6,t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(38,f*.7),t+.28);
+  var g=this.env(t,.55*v,.006,.5);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.55);
+};
+Synth.prototype.play=function(kind,t,v,f){
+  if(!f)return;
+  f=Math.min(1800,Math.max(38,f)); v=Math.max(.05,Math.min(1.2,v));
+  if(kind==="bass")this.bass(t,v,f);
+  else if(kind==="trumpet")this.trumpet(t,v,f);
+  else if(kind==="guitar")this.tone(t,v*.32,f,"sawtooth","lowpass",1400,.006,.22,.3);
+  else if(kind==="piano")this.tone(t,v*.28,f,"triangle","lowpass",2200,.003,.34,.4,"sine");
+  else if(kind==="organ")this.tone(t,v*.22,f,"square","lowpass",900,.02,.36,.42,"sine");
+  else if(kind==="sax")this.tone(t,v*.24,f,"sawtooth","bandpass",Math.min(1600,f*2.4),.03,.26,.34);
+  else if(kind==="trombone")this.tone(t,v*.26,f,"sawtooth","lowpass",900,.04,.3,.38);
+  else if(kind==="horn")this.tone(t,v*.24,f,"sine","lowpass",1100,.05,.32,.4,"triangle");
+  else if(kind==="flute")this.tone(t,v*.2,f,"sine","highpass",500,.04,.22,.3);
+  else if(kind==="clarinet")this.tone(t,v*.22,f,"square","bandpass",Math.min(1400,f*2.8),.025,.24,.32);
+  else if(kind==="oboe")this.tone(t,v*.2,f,"sawtooth","bandpass",Math.min(1800,f*3.4),.03,.2,.28);
+  else if(kind==="violin")this.tone(t,v*.18,f,"sawtooth","bandpass",Math.min(2400,f*2.2),.06,.28,.36);
+  else if(kind==="cello")this.tone(t,v*.26,f,"sawtooth","lowpass",700,.05,.34,.42);
+  else if(kind==="timpani")this.boom(t,v,f);
+};
+
+var INST=[
+  {id:"bass",label:"Bass",layer:"bass",oct:1,group:"Rhythm section"},
+  {id:"guitar",label:"Guitar",layer:"bass",oct:2,group:"Rhythm section"},
+  {id:"piano",label:"Piano",layer:"bass",oct:4,group:"Rhythm section"},
+  {id:"organ",label:"Organ",layer:"bass",oct:2,group:"Rhythm section"},
+  {id:"trumpet",label:"Trumpet",layer:"lead",oct:1,group:"Horns"},
+  {id:"sax",label:"Sax",layer:"lead",oct:.5,group:"Horns"},
+  {id:"trombone",label:"Trombone",layer:"lead",oct:.5,group:"Horns"},
+  {id:"horn",label:"Horn",layer:"lead",oct:.5,group:"Horns"},
+  {id:"flute",label:"Flute",layer:"lead",oct:2,group:"Woodwinds"},
+  {id:"clarinet",label:"Clarinet",layer:"lead",oct:1,group:"Woodwinds"},
+  {id:"oboe",label:"Oboe",layer:"lead",oct:1,group:"Woodwinds"},
+  {id:"violin",label:"Violin",layer:"lead",oct:1,group:"Strings & orchestra"},
+  {id:"cello",label:"Cello",layer:"bass",oct:1,group:"Strings & orchestra"},
+  {id:"timpani",label:"Timpani",layer:"bass",oct:.5,group:"Strings & orchestra"}
+];
+var INST_MAP={}; INST.forEach(function(i){INST_MAP[i.id]=i;});
+var ENSEMBLES=[
+  {id:"rock",label:"Rock band",ids:["bass","guitar","organ"]},
+  {id:"jazz",label:"Jazz combo",ids:["bass","piano","sax","trumpet"]},
+  {id:"symphony",label:"Symphony",ids:["violin","cello","flute","horn","timpani"]}
+];
 
 function Engine(){
   this.song=null;this.playing=false;this.partIndex=0;this.step=0;this.bpm=120;this.volume=1;
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
-  this.bassOn=false;this.trumpetOn=false;this.feelOverride=null;
+  this.enabled={};this.ensemble=null;this.feelOverride=null;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -309,7 +365,7 @@ Engine.prototype.state=function(){
     playing:this.playing,ready:this.ctx&&this.ctx.state==="running",
     partName:(p&&p.name)||"—",partIndex:this.partIndex,step:this.step,bpm:this.bpm,
     inFill:this.inFill,fillQ:this.fillQ,nextQ:this.nextQ,accentQ:this.accentQ,volume:this.volume,
-    feel:(this.song&&this.song.feel)||"rock",bassOn:this.bassOn,trumpetOn:this.trumpetOn
+    feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble
   };
 };
 Engine.prototype.load=function(song){
@@ -370,8 +426,34 @@ Engine.prototype.setFeel=function(feel){
   if(this.song.feel===feel){this.emit();return;}
   this.song.feel=feel;this.song.parts=partsFor(feel);this.inFill=false;this.emit();
 };
-Engine.prototype.setBass=function(on){this.unlock();this.bassOn=on;this.emit();};
-Engine.prototype.setTrumpet=function(on){this.unlock();this.trumpetOn=on;this.emit();};
+Engine.prototype.setInstrument=function(id,on){
+  this.unlock();
+  if(on)this.enabled[id]=true; else delete this.enabled[id];
+  this.ensemble=this.matchEnsemble();
+  this.emit();
+};
+Engine.prototype.setEnsemble=function(id){
+  this.unlock();
+  if(this.ensemble===id){this.enabled={};this.ensemble=null;}
+  else {
+    var preset=ENSEMBLES.find(function(e){return e.id===id;});
+    this.enabled={};
+    (preset?preset.ids:[]).forEach(function(k){this.enabled[k]=true;},this);
+    this.ensemble=id;
+  }
+  this.emit();
+};
+Engine.prototype.matchEnsemble=function(){
+  var keys=Object.keys(this.enabled);
+  for(var i=0;i<ENSEMBLES.length;i++){
+    var e=ENSEMBLES[i];
+    if(e.ids.length!==keys.length)continue;
+    var ok=true;
+    for(var j=0;j<e.ids.length;j++){if(!this.enabled[e.ids[j]]){ok=false;break;}}
+    if(ok)return e.id;
+  }
+  return null;
+};
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
   if(this.ctx.state!=="running"){this.ctx.resume();return;}
@@ -394,10 +476,15 @@ Engine.prototype.schedStep=function(when){
   for(var i=0;i<voices.length;i++){var v=voices[i];var velo=hit(pattern[v],stepIdx);if(velo)this.synth.trig(v,when,velo);}
   if(!this.inFill){
     var acc=AC[this.song.feel]||AC.rock;
-    var velB=hit(acc.br,st), freqB=acc.bn[st]||0;
-    if(this.bassOn&&velB&&freqB)this.synth.bass(when,velB,freqB);
-    var velT=hit(acc.tr,st), freqT=acc.tn[st]||0;
-    if(this.trumpetOn&&velT&&freqT)this.synth.trumpet(when,velT,freqT);
+    var ids=Object.keys(this.enabled);
+    var duck=ids.length>4?.62:1;
+    for(var n=0;n<ids.length;n++){
+      var spec=INST_MAP[ids[n]]; if(!spec)continue;
+      var rhythm=spec.layer==="bass"?acc.br:acc.tr;
+      var notes=spec.layer==="bass"?acc.bn:acc.tn;
+      var velo=hit(rhythm,st), freq=(notes[st]||0)*spec.oct;
+      if(velo&&freq)this.synth.play(ids[n],when,velo*duck,freq);
+    }
   }
   this.vis={step:st,partIndex:this.partIndex,inFill:this.inFill};
   this.emit();
@@ -448,8 +535,8 @@ function paint(st){
   var beat=st.playing?Math.floor(st.step/4)%4:-1;
   $("dots").innerHTML=[0,1,2,3].map(function(i){return '\x3cspan class="dot '+(i===beat?"on":"")+'"\x3e\x3c/span\x3e';}).join("");
   $("styles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.feel===st.feel);});
-  $("bass").classList.toggle("on",!!st.bassOn);
-  $("trumpet").classList.toggle("on",!!st.trumpetOn);
+  $("ensembles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
+  $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
 }
 engine.sub(paint); engine.load(song); renderList(); paint();
 function press(el,fn){
@@ -467,8 +554,22 @@ $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" typ
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
 });
-press($("bass"),function(){engine.setBass(!engine.bassOn);});
-press($("trumpet"),function(){engine.setTrumpet(!engine.trumpetOn);});
+$("ensembles").innerHTML=ENSEMBLES.map(function(e){return '\x3cbutton class="chip" type="button" data-ens="'+e.id+'"\x3e'+e.label+'\x3c/button\x3e';}).join("");
+$("ensembles").querySelectorAll(".chip").forEach(function(btn){
+  press(btn,function(){engine.setEnsemble(btn.dataset.ens);});
+});
+(function(){
+  var groups=[], seen={};
+  INST.forEach(function(i){ if(!seen[i.group]){seen[i.group]=[]; groups.push(i.group);} seen[i.group].push(i); });
+  $("inst-groups").innerHTML=groups.map(function(g){
+    return '\x3cp class="label"\x3e'+g+'\x3c/p\x3e\x3cdiv class="inst-grid"\x3e'+seen[g].map(function(i){
+      return '\x3cbutton class="inst" type="button" data-id="'+i.id+'"\x3e'+i.label.toUpperCase()+'\x3c/button\x3e';
+    }).join("")+'\x3c/div\x3e';
+  }).join("");
+  $("inst-groups").querySelectorAll(".inst").forEach(function(btn){
+    press(btn,function(){engine.setInstrument(btn.dataset.id,!engine.enabled[btn.dataset.id]);});
+  });
+})();
 paint();
 $("bpm").addEventListener("pointerdown",function(){engine.unlock();});
 $("bpm").addEventListener("input",function(e){engine.setBpm(+e.target.value);});
