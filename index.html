@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-publish-smooth -->
+  <!-- pages-redeploy 2026-09-07-publish-stable -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -570,21 +570,21 @@ PracticeTrack.prototype.play=function(when, transport){
   if(src.loopEnd<=src.loopStart+0.08) src.loop=false;
   var span=src.loop?src.loopEnd-src.loopStart:duration-cue;
   var off=cue+Math.max(0, transport||0)*(this.rate||1);
-  if(span>0) off=cue+(((off-cue)%span)+span)%span;
+  if(span>0.05) off=cue+(((off-cue)%span)+span)%span;
+  else off=cue;
   var now=this.ctx.currentTime;
   var target=when==null?now:when;
   var startAt=target;
   if(target<now){
     off+=(now-target)*(this.rate||1);
     startAt=now;
-    if(span>0) off=cue+(((off-cue)%span)+span)%span;
+    if(span>0.05) off=cue+(((off-cue)%span)+span)%span;
   }
-  if(off>=duration)return;
+  if(!isFinite(off)||!isFinite(startAt)||off>=duration||off<0)return;
   this.gate.gain.cancelScheduledValues(startAt);
   this.gate.gain.setValueAtTime(0.0001,startAt);
   this.gate.gain.linearRampToValueAtTime(1,startAt+.035);
-  src.start(startAt, off);
-  this.src=src;
+  try{ src.start(startAt, off); this.src=src; }catch(e){ this.src=null; }
 };
 PracticeTrack.prototype.setAlign=function(sec){
   this.align.delayTime.setTargetAtTime(Math.max(0,Math.min(.1,sec||0)), this.ctx.currentTime, .05);
@@ -615,18 +615,24 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
   var self=this;
   this.stopSrc(); this.stems=null; this.buffer=null; this.nudge=0; this.rate=1; this.cue=0;
   this.name=file.name.replace(/\.[^.]+$/,"");
-  file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw.slice(0)); }).then(function(buf){
-    if(buf.numberOfChannels<2){
-      var stereo=self.ctx.createBuffer(2, buf.length, buf.sampleRate);
-      stereo.copyToChannel(buf.getChannelData(0),0);
-      stereo.copyToChannel(buf.getChannelData(0),1);
-      self.buffer=stereo;
-    } else self.buffer=buf;
+  if(file.size>22*1024*1024){
+    if(onReady) onReady({error:"File is too big for the phone. Use a clip under ~4 minutes."});
+    return;
+  }
+  file.arrayBuffer().then(function(raw){ return self.ctx.decodeAudioData(raw); }).then(function(buf){
+    var max=Math.min(buf.length, Math.floor(buf.sampleRate*180));
+    var stereo=self.ctx.createBuffer(2, max, buf.sampleRate);
+    var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
+    stereo.copyToChannel(L.subarray(0,max),0);
+    stereo.copyToChannel(R.subarray(0,max),1);
+    self.buffer=stereo;
     var a=analyzeTrack(self.buffer, hint||120);
     self.nativeBpm=a.bpm; self.cue=a.offset;
     self.apply();
     if(onReady) onReady(a);
     else if(self.wantPlay) self.play();
+  }).catch(function(err){
+    if(onReady) onReady({error: String(err&&err.message||err||"Could not decode audio")});
   });
 };
 PracticeTrack.prototype.setStems=function(stems){
@@ -704,42 +710,45 @@ self.onmessage=async function(ev){
 };
 `;
 
-var LOCK_WORKLET="class GrooveLockTap extends AudioWorkletProcessor{constructor(){super();this.lp=0;this.env=0;this.prev=0;this.hold=0;this.lpA=1-Math.exp(-2*Math.PI*75/sampleRate);this.at=1-Math.exp(-1/(sampleRate*0.003));this.rel=1-Math.exp(-1/(sampleRate*0.04));}process(inputs){var ch=inputs[0]&&inputs[0][0];if(!ch)return true;var peak=0;for(var i=0;i<ch.length;i++){this.lp+=this.lpA*(ch[i]-this.lp);var abs=this.lp<0?-this.lp:this.lp;this.env+=(abs>this.env?this.at:this.rel)*(abs-this.env);if(this.env>peak)peak=this.env;}var flux=peak>this.prev?peak-this.prev:0;this.prev=peak;this.hold-=ch.length/sampleRate;if(flux>0.01&&this.hold<=0){this.port.postMessage({t:currentTime,flux:flux});this.hold=0.09;}return true;}}registerProcessor('groove-lock-tap',GrooveLockTap);";
+var LOCK_WORKLET="unused";
 function LiveLock(ctx){
   this.ctx=ctx; this.input=ctx.createGain(); this.enabled=true; this.state="off";
-  this.origin=0; this.bpm=120; this.last=0; this.hits=0; this.dirty=false; this.ready=false;
-  var silent=ctx.createGain(); silent.gain.value=0; silent.connect(ctx.destination); this.silent=silent;
+  this.origin=0; this.bpm=120; this.hits=0; this.errors=[]; this.pendingSlip=0;
+  this.holdUntil=0; this.lastSlipAt=0; this.lastOnset=0; this.prev=0; this.ready=true;
+  var lp=ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=80; lp.Q.value=0.7;
+  this.analyser=ctx.createAnalyser(); this.analyser.fftSize=256; this.analyser.smoothingTimeConstant=0;
+  this.input.connect(lp); lp.connect(this.analyser);
+  this.data=new Float32Array(this.analyser.fftSize);
 }
-LiveLock.prototype.init=function(){
-  if(this.ready||!this.ctx.audioWorklet) return Promise.resolve();
-  var self=this;
-  var url=URL.createObjectURL(new Blob([LOCK_WORKLET],{type:"text/javascript"}));
-  return this.ctx.audioWorklet.addModule(url).then(function(){
-    URL.revokeObjectURL(url);
-    var node=new AudioWorkletNode(self.ctx,"groove-lock-tap",{numberOfInputs:1,numberOfOutputs:1,channelCount:1});
-    self.input.connect(node); node.connect(self.silent);
-    node.port.onmessage=function(ev){ if(ev.data&&typeof ev.data.t==="number") self.onOnset(ev.data.t, ev.data.flux||0); };
-    self.node=node; self.ready=true;
-  }).catch(function(){ self.ready=false; });
-};
+LiveLock.prototype.init=function(){ return Promise.resolve(); };
 LiveLock.prototype.reset=function(origin,bpm,holdUntil){
   this.origin=origin; this.bpm=bpm; this.hits=0; this.errors=[]; this.pendingSlip=0;
   this.holdUntil=holdUntil!=null?holdUntil:origin+(60/Math.max(bpm,40))*8;
-  this.lastSlipAt=0;
+  this.lastSlipAt=0; this.lastOnset=0; this.prev=0;
   this.state=this.enabled?"listening":"off";
 };
 LiveLock.prototype.suspend=function(){ this.enabled=false; this.pendingSlip=0; this.errors=[]; this.state="off"; };
+LiveLock.prototype.poll=function(now){
+  if(!this.enabled||!this.bpm||now<this.holdUntil) return;
+  try{ this.analyser.getFloatTimeDomainData(this.data); }catch(e){ return; }
+  var peak=0, i, v, abs;
+  for(i=0;i<this.data.length;i++){ v=this.data[i]; abs=v<0?-v:v; if(abs>peak) peak=abs; }
+  var flux=peak>this.prev?peak-this.prev:0;
+  this.prev=peak;
+  if(flux>0.02 && now-(this.lastOnset||0)>0.1) this.onOnset(now);
+};
 LiveLock.prototype.consumeSlip=function(){
   if(!this.pendingSlip) return 0;
   var s=this.pendingSlip; this.pendingSlip=0; this.lastSlipAt=this.ctx.currentTime; return s;
 };
 LiveLock.prototype.onOnset=function(t){
   if(!this.enabled||!this.bpm||t<this.holdUntil) return;
-  var period=60/this.bpm; if(period<=0) return;
+  var period=60/this.bpm; if(!isFinite(period)||period<=0) return;
   var err=t-this.origin;
   err=((err%period)+period)%period;
   if(err>period/2) err-=period;
   if(Math.abs(err)>period*0.28) return;
+  this.lastOnset=t;
   this.errors=this.errors||[]; this.errors.push(err);
   if(this.errors.length>6) this.errors.shift();
   this.hits++; this.state=this.hits>=4?"locked":"listening";
@@ -789,9 +798,15 @@ Engine.prototype.unlock=function(){
       var drums=this.ctx.createGain();
       var comp=this.ctx.createDynamicsCompressor();comp.threshold.value=-12;comp.ratio.value=2.5;
       var makeup=this.ctx.createGain();makeup.gain.value=1.8;
-      this.drumAlign=this.ctx.createDelay(0.25); this.drumAlign.delayTime.value=0;
+      this.drumAlign=null;
+      try{
+        this.drumAlign=this.ctx.createDelay(0.25); this.drumAlign.delayTime.value=0;
+      }catch(e){}
       this.master=this.ctx.createGain();
-      drums.connect(comp);comp.connect(makeup);makeup.connect(this.drumAlign);this.drumAlign.connect(this.master);this.master.connect(this.ctx.destination);
+      drums.connect(comp);comp.connect(makeup);
+      if(this.drumAlign){ makeup.connect(this.drumAlign); this.drumAlign.connect(this.master); }
+      else makeup.connect(this.master);
+      this.master.connect(this.ctx.destination);
       this.synth=new Synth(this.ctx,drums);
       this.track=new PracticeTrack(this.ctx,this.master);
       this.live=new LiveLock(this.ctx);
@@ -941,6 +956,12 @@ Engine.prototype.loadTrack=function(file){
   this.practiceFile=file;
   var self=this;
   if(this.track)this.track.load(file, this.song&&this.song.bpm||this.bpm, function(a){
+    if(a&&a.error){
+      self.trackAi="error";
+      self.trackAiMessage=a.error;
+      self.emit();
+      return;
+    }
     if(a&&a.bpm) self.setBpm(a.bpm, true);
     self.trackAiMessage="Locked at "+(Math.round(self.bpm*10)/10)+" BPM — kick on beat 1.";
     if(self.playing) self.lockTrack();
@@ -1060,6 +1081,7 @@ Engine.prototype.reattach=function(){
 Engine.prototype.sched=function(){
   if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
   if(this.live&&this.liveLockOn&&this.track&&this.track.buffer){
+    this.live.poll(this.ctx.currentTime);
     var slip=this.live.consumeSlip();
     if(slip){
       if(slip>0) this.drumLag=Math.min(.08,(this.drumLag||0)+slip);
@@ -1070,8 +1092,11 @@ Engine.prototype.sched=function(){
       if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(this.drumLag, this.ctx.currentTime, .06);
     }
   }
-  while(this.nextT<this.ctx.currentTime+.25){
+  var guard=0;
+  while(this.nextT<this.ctx.currentTime+.25 && guard<48){
+    if(!isFinite(this.nextT)) break;
     this.schedStep(this.nextT);this.advance();
+    guard++;
   }
 };
 Engine.prototype.schedStep=function(when){
