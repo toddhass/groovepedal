@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-instruments -->
+  <!-- pages-redeploy 2026-09-07-bands -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -49,6 +49,13 @@
     .inst { min-height: 2.75rem; width: 100%; font-size: .75rem; }
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
     @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
+    .band-list { max-height: 13rem; overflow-y: auto; border-radius: .75rem; background: var(--bg); box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
+    .band-group { color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; margin: .45rem .75rem .15rem; }
+    .band-row { width: 100%; display: block; text-align: left; background: transparent; border: 0; color: inherit; border-radius: .5rem; padding: .55rem .75rem; font: inherit; }
+    .band-row.on { background: rgb(215 178 74 / .15); box-shadow: 0 0 0 1px var(--gold); }
+    .band-row .t { font-weight: 600; display: block; }
+    .band-row.on .t { color: var(--gold); }
+    .band-row .a { color: var(--muted); font-size: .75rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .foot { text-align: center; color: var(--muted); font-size: .75rem; }
     .empty { padding: 1.5rem .75rem; text-align: center; color: var(--muted); font-size: .875rem; }
     .player { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
@@ -123,7 +130,7 @@
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
       <p class="label">Band</p>
-      <div class="chips" id="ensembles"></div>
+      <div class="band-list" id="ensembles"></div>
       <p class="label">Instruments</p>
       <div id="inst-groups"></div>
       <label class="sl">Tempo <input id="bpm" type="range" min="40" max="240" value="120" /> <span id="bpmv">120</span></label>
@@ -347,9 +354,26 @@ var INST=[
 ];
 var INST_MAP={}; INST.forEach(function(i){INST_MAP[i.id]=i;});
 var ENSEMBLES=[
-  {id:"rock",label:"Rock band",ids:["bass","guitar","organ"]},
-  {id:"jazz",label:"Jazz combo",ids:["bass","piano","sax","trumpet"]},
-  {id:"symphony",label:"Symphony",ids:["violin","cello","flute","horn","timpani"]}
+  {id:"rock",label:"Rock band",group:"Rock & pop",ids:["bass","guitar","organ"]},
+  {id:"pop",label:"Pop band",group:"Rock & pop",ids:["bass","guitar","piano"]},
+  {id:"punk",label:"Punk trio",group:"Rock & pop",ids:["bass","guitar"]},
+  {id:"metal",label:"Metal",group:"Rock & pop",ids:["bass","guitar","organ"]},
+  {id:"funk",label:"Funk",group:"Rock & pop",ids:["bass","guitar","organ","sax","trumpet"]},
+  {id:"jazz",label:"Jazz combo",group:"Jazz & blues",ids:["bass","piano","sax","trumpet"]},
+  {id:"bigband",label:"Big band",group:"Jazz & blues",ids:["bass","piano","trumpet","sax","trombone"]},
+  {id:"dixieland",label:"Dixieland",group:"Jazz & blues",ids:["bass","piano","trumpet","trombone","clarinet"]},
+  {id:"blues",label:"Blues band",group:"Jazz & blues",ids:["bass","guitar","piano","organ"]},
+  {id:"soul",label:"Soul",group:"Jazz & blues",ids:["bass","piano","organ","trumpet","sax"]},
+  {id:"country",label:"Country band",group:"Roots",ids:["bass","guitar","piano","violin"]},
+  {id:"folk",label:"Folk band",group:"Roots",ids:["bass","guitar","flute"]},
+  {id:"gospel",label:"Gospel",group:"Roots",ids:["bass","piano","organ"]},
+  {id:"reggae",label:"Reggae / ska",group:"Roots",ids:["bass","guitar","organ","sax","trombone"]},
+  {id:"marching",label:"Marching band",group:"Wind & orchestra",ids:["trumpet","trombone","horn","flute","clarinet"]},
+  {id:"concert",label:"Concert band",group:"Wind & orchestra",ids:["flute","clarinet","oboe","sax","trumpet","trombone","horn"]},
+  {id:"brass",label:"Brass band",group:"Wind & orchestra",ids:["bass","trumpet","trombone","horn"]},
+  {id:"symphony",label:"Symphony",group:"Wind & orchestra",ids:["violin","cello","flute","horn","timpani"]},
+  {id:"chamber",label:"Chamber strings",group:"Wind & orchestra",ids:["violin","cello"]},
+  {id:"baroque",label:"Baroque ensemble",group:"Wind & orchestra",ids:["violin","cello","flute","oboe","piano"]}
 ];
 
 function Engine(){
@@ -445,6 +469,10 @@ Engine.prototype.setEnsemble=function(id){
 };
 Engine.prototype.matchEnsemble=function(){
   var keys=Object.keys(this.enabled);
+  if(this.ensemble){
+    var cur=ENSEMBLES.find(function(e){return e.id===this.ensemble;},this);
+    if(cur && cur.ids.length===keys.length && cur.ids.every(function(id){return this.enabled[id];},this)) return this.ensemble;
+  }
   for(var i=0;i<ENSEMBLES.length;i++){
     var e=ENSEMBLES[i];
     if(e.ids.length!==keys.length)continue;
@@ -535,7 +563,7 @@ function paint(st){
   var beat=st.playing?Math.floor(st.step/4)%4:-1;
   $("dots").innerHTML=[0,1,2,3].map(function(i){return '\x3cspan class="dot '+(i===beat?"on":"")+'"\x3e\x3c/span\x3e';}).join("");
   $("styles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.feel===st.feel);});
-  $("ensembles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
+  $("ensembles").querySelectorAll(".band-row").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
 }
 engine.sub(paint); engine.load(song); renderList(); paint();
@@ -554,8 +582,16 @@ $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" typ
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
 });
-$("ensembles").innerHTML=ENSEMBLES.map(function(e){return '\x3cbutton class="chip" type="button" data-ens="'+e.id+'"\x3e'+e.label+'\x3c/button\x3e';}).join("");
-$("ensembles").querySelectorAll(".chip").forEach(function(btn){
+$("ensembles").innerHTML=(function(){
+  var html="", group="";
+  ENSEMBLES.forEach(function(e){
+    if(e.group!==group){ group=e.group; html+='\x3cp class="band-group"\x3e'+group+'\x3c/p\x3e'; }
+    var lineup=e.ids.map(function(id){return INST_MAP[id]?INST_MAP[id].label:id;}).join(" · ");
+    html+='\x3cbutton class="band-row" type="button" data-ens="'+e.id+'"\x3e\x3cspan class="t"\x3e'+e.label+'\x3c/span\x3e\x3cspan class="a"\x3e'+lineup+'\x3c/span\x3e\x3c/button\x3e';
+  });
+  return html;
+})();
+$("ensembles").querySelectorAll(".band-row").forEach(function(btn){
   press(btn,function(){engine.setEnsemble(btn.dataset.ens);});
 });
 (function(){
