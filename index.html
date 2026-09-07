@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-demucs -->
+  <!-- pages-redeploy 2026-09-07-apple-preview -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -53,6 +53,10 @@
     .track-name { color: var(--gold); font-size: .875rem; margin: .35rem 0 .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ai-bar { height: .4rem; border-radius: 999px; background: #23211d; overflow: hidden; margin: 0 0 .5rem; }
     .ai-fill { height: 100%; width: 0; background: var(--gold); }
+    .apple-list { max-height: 11rem; overflow-y: auto; display: flex; flex-direction: column; gap: .2rem; margin: 0 0 .55rem; }
+    .apple-row { min-height: 2.75rem; text-align: left; background: #23211d; color: var(--ink); border: 0; border-radius: .7rem; padding: .45rem .7rem; }
+    .apple-row .t { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .apple-row .a { display: block; color: var(--muted); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .inst[disabled] { opacity: .4; }
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
     @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
@@ -137,7 +141,8 @@
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
       <p class="label">Practice track</p>
-      <p class="hint">Load a file you own. AI split (HT-Demucs) pulls guitar into its own stem — first run downloads a 130 MB model.</p>
+      <p class="hint">Apple catalog previews are the real recording (30s). Tap one, then AI-split the guitar out. Full song: load the purchased .m4a.</p>
+      <div class="apple-list" id="applehits"></div>
       <div class="inst-grid">
         <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" /></label>
         <button class="inst" id="findinst" type="button">FIND INSTRUMENTAL</button>
@@ -807,7 +812,7 @@ function pick(id){
   engine.stop();
   var h=hits.find(function(x){return x.id===id;})||SEEDS.find(function(x){return x.id===id;});
   if(!h)return;
-  selected=h; song=makeSong(h); engine.load(song); paint(); renderList();
+  selected=h; song=makeSong(h); engine.load(song); paint(); renderList(); searchApple();
 }
 function paint(st){
   st=st||engine.state();
@@ -836,7 +841,7 @@ function paint(st){
   $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
   $("retryai").hidden=!(st.trackName&&st.trackAi==="error");
 }
-engine.sub(paint); engine.load(song); renderList(); paint();
+engine.sub(paint); engine.load(song); renderList(); paint(); searchApple();
 function press(el,fn){
   var last=0;
   var run=function(){var n=Date.now(); if(n-last<350)return; last=n; engine.unlock(); fn();};
@@ -860,6 +865,42 @@ press($("findinst"),function(){
 press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
 press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
 press($("retryai"),function(){if(engine.practiceFile)engine.startSplit(engine.practiceFile);});
+function searchApple(){
+  var box=$("applehits");
+  box.innerHTML='<p class="hint">Searching Apple catalog…</p>';
+  fetch("https://itunes.apple.com/search?term="+encodeURIComponent(song.title+" "+song.artist)+"&entity=song&limit=6")
+    .then(function(r){return r.json();})
+    .then(function(data){
+      var hits=(data.results||[]).filter(function(x){return x.previewUrl;}).slice(0,6);
+      if(!hits.length){ box.innerHTML='<p class="hint">No Apple preview — load a purchased .m4a.</p>'; return; }
+      box.innerHTML="";
+      hits.forEach(function(h){
+        var btn=document.createElement("button");
+        btn.type="button";
+        btn.className="apple-row";
+        var t=document.createElement("span"); t.className="t"; t.textContent=h.trackName;
+        var a=document.createElement("span"); a.className="a"; a.textContent=h.artistName+" · 30s preview";
+        btn.appendChild(t); btn.appendChild(a);
+        btn.addEventListener("click",function(){ loadApple(h.previewUrl, h.trackName+" (Apple 30s)"); });
+        box.appendChild(btn);
+      });
+    })
+    .catch(function(){ box.innerHTML='<p class="hint">Apple catalog unavailable — load a purchased file.</p>'; });
+}
+function loadApple(url, name){
+  try{
+    var host=new URL(url).hostname;
+    if(host!=="audio-ssl.itunes.apple.com" && host!=="audio.itunes.apple.com") return;
+  }catch(e){ return; }
+  engine.unlock();
+  engine.trackAi="working"; engine.trackAiProgress=0.01; engine.trackAiMessage="Loading Apple preview…"; engine.emit();
+  fetch(url).then(function(r){return r.blob();}).then(function(blob){
+    var file=new File([blob], name+".m4a", {type:"audio/mp4"});
+    engine.loadTrack(file);
+  }).catch(function(){
+    engine.trackAi="error"; engine.trackAiMessage="Could not load Apple preview"; engine.emit();
+  });
+}
 $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" type="button" data-feel="'+s.id+'"\x3e'+s.label+'\x3c/button\x3e';}).join("");
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
