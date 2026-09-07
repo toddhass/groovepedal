@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-practice-track -->
+  <!-- pages-redeploy 2026-09-07-demucs -->
   <style>
     :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
     * { box-sizing: border-box; }
@@ -51,6 +51,8 @@
     .file-btn input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
     .hint { color: var(--muted); font-size: .75rem; margin: 0 0 .4rem; line-height: 1.4; }
     .track-name { color: var(--gold); font-size: .875rem; margin: .35rem 0 .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai-bar { height: .4rem; border-radius: 999px; background: #23211d; overflow: hidden; margin: 0 0 .5rem; }
+    .ai-fill { height: 100%; width: 0; background: var(--gold); }
     .inst[disabled] { opacity: .4; }
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
     @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
@@ -135,12 +137,15 @@
       <p class="label">Groove style</p>
       <div class="chips" id="styles"></div>
       <p class="label">Practice track</p>
-      <p class="hint">Can’t stream the original hit. Load a file you own, then tap Guitar off.</p>
+      <p class="hint">Load a file you own. AI split (HT-Demucs) pulls guitar into its own stem — first run downloads a 130 MB model.</p>
       <div class="inst-grid">
         <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" /></label>
         <button class="inst" id="findinst" type="button">FIND INSTRUMENTAL</button>
       </div>
       <p class="track-name" id="trackname">No file loaded</p>
+      <p class="hint" id="trackai"></p>
+      <div class="ai-bar" id="aibarwrap" hidden><div class="ai-fill" id="aibar"></div></div>
+      <button class="inst" id="retryai" type="button" hidden>RETRY AI SPLIT</button>
       <div class="inst-grid">
         <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
         <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
@@ -418,7 +423,7 @@ var ENSEMBLES=[
 ];
 
 function PracticeTrack(ctx, dest){
-  this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.url=null;
+  this.ctx=ctx; this.name=null; this.vocalsOn=true; this.guitarOn=true; this.src=null; this.url=null; this.stems=null;
   this.el=new Audio(); this.el.loop=true; this.el.preload="auto"; this.el.setAttribute("playsinline","");
   this.split=ctx.createChannelSplitter(2);
   var midL=ctx.createGain(); midL.gain.value=.5;
@@ -450,22 +455,6 @@ PracticeTrack.prototype.ensure=function(){
   this.src=this.ctx.createMediaElementSource(this.el);
   this.src.connect(this.split);
 };
-PracticeTrack.prototype.apply=function(){
-  var t=this.ctx.currentTime;
-  this.vocalsGain.gain.setTargetAtTime(this.vocalsOn?1:.04,t,.03);
-  this.guitarGain.gain.setTargetAtTime(this.guitarOn?1:0,t,.03);
-  this.body.gain.setTargetAtTime(this.guitarOn?0:-11,t,.03);
-  this.air.gain.setTargetAtTime(this.guitarOn?0:-9,t,.03);
-};
-PracticeTrack.prototype.load=function(file){
-  this.ensure();
-  if(this.url) URL.revokeObjectURL(this.url);
-  this.url=URL.createObjectURL(file);
-  this.el.src=this.url;
-  this.name=file.name.replace(/\.[^.]+$/,"");
-  this.el.load();
-  this.apply();
-};
 PracticeTrack.prototype.play=function(){
   if(!this.name)return;
   this.ensure();
@@ -474,11 +463,110 @@ PracticeTrack.prototype.play=function(){
 };
 PracticeTrack.prototype.pause=function(){ try{this.el.pause();}catch(e){} };
 PracticeTrack.prototype.rewind=function(){ try{this.el.currentTime=0;}catch(e){} };
+PracticeTrack.prototype.apply=function(){
+  var t=this.ctx.currentTime;
+  if(this.stems){
+    this.vocalsGain.gain.setTargetAtTime(1,t,.02);
+    this.guitarGain.gain.setTargetAtTime(1,t,.02);
+    this.body.gain.setTargetAtTime(0,t,.02);
+    this.air.gain.setTargetAtTime(0,t,.02);
+    return;
+  }
+  this.vocalsGain.gain.setTargetAtTime(this.vocalsOn?1:.04,t,.03);
+  this.guitarGain.gain.setTargetAtTime(this.guitarOn?1:0,t,.03);
+  this.body.gain.setTargetAtTime(this.guitarOn?0:-11,t,.03);
+  this.air.gain.setTargetAtTime(this.guitarOn?0:-9,t,.03);
+};
+PracticeTrack.prototype.load=function(file){
+  this.ensure();
+  this.stems=null;
+  if(this.url) URL.revokeObjectURL(this.url);
+  this.url=URL.createObjectURL(file);
+  this.el.src=this.url;
+  this.name=file.name.replace(/\.[^.]+$/,"");
+  this.el.load();
+  this.apply();
+};
+PracticeTrack.prototype.setStems=function(stems){
+  this.stems=stems;
+  this.apply();
+  this.rebuild();
+};
+PracticeTrack.prototype.rebuild=function(){
+  if(!this.stems)return;
+  var names=["drums","bass","other","piano"];
+  if(this.vocalsOn)names.push("vocals");
+  if(this.guitarOn)names.push("guitar");
+  var n=this.stems.drums.left.length, left=new Float32Array(n), right=new Float32Array(n), i, s, stem;
+  for(s=0;s<names.length;s++){
+    stem=this.stems[names[s]];
+    for(i=0;i<n;i++){ left[i]+=stem.left[i]||0; right[i]+=stem.right[i]||0; }
+  }
+  var blob=encodeWav(left,right,44100);
+  var playing=!this.el.paused, t=this.el.currentTime;
+  if(this.url) URL.revokeObjectURL(this.url);
+  this.url=URL.createObjectURL(blob);
+  this.el.src=this.url; this.el.currentTime=t;
+  if(playing)this.el.play().catch(function(){});
+};
+function encodeWav(left,right,sr){
+  var n=Math.min(left.length,right.length), bytes=44+n*4, buf=new ArrayBuffer(bytes), v=new DataView(buf);
+  function str(o,t){ for(var i=0;i<t.length;i++) v.setUint8(o+i,t.charCodeAt(i)); }
+  str(0,"RIFF"); v.setUint32(4,bytes-8,true); str(8,"WAVE"); str(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,2,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*4,true); v.setUint16(32,4,true); v.setUint16(34,16,true);
+  str(36,"data"); v.setUint32(40,n*4,true);
+  var o=44, s, x;
+  for(s=0;s<n;s++){
+    x=Math.max(-1,Math.min(1,left[s]||0)); v.setInt16(o, x<0?x*0x8000:x*0x7fff, true);
+    x=Math.max(-1,Math.min(1,right[s]||0)); v.setInt16(o+2, x<0?x*0x8000:x*0x7fff, true);
+    o+=4;
+  }
+  return new Blob([buf],{type:"audio/wav"});
+}
+var DEMUCS_WORKER_SRC = `
+importScripts("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.29.0/dist/ort.min.js");
+var MODEL_URL="https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx";
+var WASM="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.29.0/dist/";
+var SR=44100, N=Math.round(7.8*SR), CH=2, STEMS=6, OV=Math.floor(N/4), STRIDE=N-OV;
+var NAMES=["drums","bass","other","vocals","guitar","piano"];
+function win(seg,ov){ var w=new Float32Array(seg); w.fill(1); for(var i=0;i<ov;i++){ var v=i/ov; w[i]=v; w[seg-1-i]=v;} return w; }
+self.onmessage=async function(ev){
+  var d=ev.data; if(d.type!=="separate")return;
+  try{
+    self.postMessage({type:"progress",ratio:0.05,message:"Downloading AI model…"});
+    ort.env.wasm.wasmPaths=WASM; ort.env.wasm.numThreads=1;
+    var res=await fetch(MODEL_URL); var buf=await res.arrayBuffer();
+    self.postMessage({type:"progress",ratio:0.4,message:"Compiling AI model…"});
+    var session=await ort.InferenceSession.create(buf,{executionProviders:["wasm"],graphOptimizationLevel:"all"});
+    var left=d.left, right=d.right, total=left.length, nChunks=Math.max(1,Math.ceil(total/STRIDE));
+    var window=win(N,OV), chunk=new Float32Array(CH*N), weight=new Float32Array(total);
+    var out=NAMES.map(function(){return [new Float32Array(total), new Float32Array(total)];});
+    for(var i=0;i<nChunks;i++){
+      var start=i*STRIDE, end=Math.min(start+N,total), len=end-start;
+      chunk.fill(0); chunk.set(left.subarray(start,end),0); chunk.set(right.subarray(start,end),N);
+      var result=await session.run({mix:new ort.Tensor("float32",chunk,[1,CH,N])});
+      var stems=result.stems.data;
+      for(var st=0;st<STEMS;st++) for(var c=0;c<CH;c++){
+        var row=(st*CH+c)*N, dest=out[st][c];
+        for(var s=0;s<len;s++) dest[start+s]+=stems[row+s]*window[s];
+      }
+      for(var s=0;s<len;s++) weight[start+s]+=window[s];
+      self.postMessage({type:"progress",ratio:0.5+0.48*((i+1)/nChunks),message:"Splitting stems "+(i+1)+"/"+nChunks});
+    }
+    for(var s=0;s<total;s++){ var w=Math.max(weight[s],1e-8); for(var st=0;st<STEMS;st++){ out[st][0][s]/=w; out[st][1][s]/=w; } }
+    var payload={}, xfer=[];
+    NAMES.forEach(function(name,i){ payload[name]={left:out[i][0],right:out[i][1]}; xfer.push(out[i][0].buffer,out[i][1].buffer); });
+    self.postMessage({type:"done",stems:payload}, xfer);
+  }catch(e){ self.postMessage({type:"error",message:String(e&&e.message||e)}); }
+};
+`;
 
 function Engine(){
   this.song=null;this.playing=false;this.partIndex=0;this.step=0;this.bpm=120;this.volume=1;
   this.fillQ=false;this.nextQ=false;this.accentQ=false;this.inFill=false;this.listeners=[];
   this.enabled={};this.ensemble=null;this.cowbellOn=false;this.feelOverride=null;this.track=null;
+  this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
 }
 Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
 Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
@@ -489,7 +577,8 @@ Engine.prototype.state=function(){
     partName:(p&&p.name)||"—",partIndex:this.partIndex,step:this.step,bpm:this.bpm,
     inFill:this.inFill,fillQ:this.fillQ,nextQ:this.nextQ,accentQ:this.accentQ,volume:this.volume,
     feel:(this.song&&this.song.feel)||"rock",enabled:this.enabled,ensemble:this.ensemble,cowbellOn:this.cowbellOn,
-    trackName:this.track&&this.track.name,trackVocalsOn:!this.track||this.track.vocalsOn,trackGuitarOn:!this.track||this.track.guitarOn
+    trackName:this.track&&this.track.name,trackVocalsOn:!this.track||this.track.vocalsOn,trackGuitarOn:!this.track||this.track.guitarOn,
+    trackAi:this.trackAi,trackAiProgress:this.trackAiProgress,trackAiMessage:this.trackAiMessage
   };
 };
 Engine.prototype.load=function(song){
@@ -596,18 +685,52 @@ Engine.prototype.setCowbell=function(on){
 Engine.prototype.loadTrack=function(file){
   this.unlock();
   if(!this.track&&this.ctx&&this.master)this.track=new PracticeTrack(this.ctx,this.master);
+  this.practiceFile=file;
   if(this.track)this.track.load(file);
+  this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";
   this.emit();
+  this.startSplit(file);
 };
 Engine.prototype.setTrackVocals=function(on){
   this.unlock();
-  if(this.track){this.track.vocalsOn=on;this.track.apply();}
+  if(this.track){this.track.vocalsOn=on;this.track.apply();if(this.track.stems)this.track.rebuild();}
   this.emit();
 };
 Engine.prototype.setTrackGuitar=function(on){
   this.unlock();
-  if(this.track){this.track.guitarOn=on;this.track.apply();}
+  if(this.track){this.track.guitarOn=on;this.track.apply();if(this.track.stems)this.track.rebuild();}
   this.emit();
+};
+Engine.prototype.startSplit=function(file){
+  var self=this, token=++this.splitToken;
+  this.trackAi="working"; this.trackAiProgress=0.02; this.trackAiMessage="Preparing AI split…"; this.emit();
+  var reader=new FileReader();
+  reader.onerror=function(){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="Could not read file"; self.emit(); };
+  reader.onload=function(){
+    if(token!==self.splitToken)return;
+    self.ctx.decodeAudioData(reader.result.slice(0), function(buf){
+      if(token!==self.splitToken)return;
+      var max=Math.min(buf.length, Math.ceil(90*buf.sampleRate));
+      var offline=new OfflineAudioContext(2, Math.ceil(Math.min(buf.duration,90)*44100), 44100);
+      var src=offline.createBufferSource(); src.buffer=buf; src.connect(offline.destination); src.start(0);
+      offline.startRendering().then(function(rendered){
+        if(token!==self.splitToken)return;
+        var left=rendered.getChannelData(0).slice(), right=rendered.getChannelData(1).slice();
+        var blob=new Blob([DEMUCS_WORKER_SRC],{type:"text/javascript"});
+        var worker=new Worker(URL.createObjectURL(blob));
+        worker.onmessage=function(ev){
+          if(token!==self.splitToken){ worker.terminate(); return; }
+          var msg=ev.data;
+          if(msg.type==="progress"){ self.trackAi="working"; self.trackAiProgress=msg.ratio; self.trackAiMessage=msg.message; self.emit(); }
+          else if(msg.type==="done"){ worker.terminate(); self.track.setStems(msg.stems); self.trackAi="ready"; self.trackAiProgress=1; self.trackAiMessage="AI mix ready — guitar is its own stem"; self.emit(); }
+          else if(msg.type==="error"){ worker.terminate(); self.trackAi="error"; self.trackAiMessage=msg.message||"AI split failed"; self.emit(); }
+        };
+        worker.onerror=function(e){ worker.terminate(); if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=e.message||"AI worker failed"; self.emit(); };
+        worker.postMessage({type:"separate",left:left,right:right},[left.buffer,right.buffer]);
+      }).catch(function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=String(err); self.emit(); });
+    }, function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="Could not decode audio"; self.emit(); });
+  };
+  reader.readAsArrayBuffer(file);
 };
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
@@ -708,6 +831,10 @@ function paint(st){
   $("trackguitar").disabled=!st.trackName;
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
   $("trackguitar").classList.toggle("on",!!st.trackName&&!!st.trackGuitarOn);
+  $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off to remove the real guitar stem":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":""):"";
+  $("aibarwrap").hidden=!(st.trackName&&st.trackAi==="working");
+  $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
+  $("retryai").hidden=!(st.trackName&&st.trackAi==="error");
 }
 engine.sub(paint); engine.load(song); renderList(); paint();
 function press(el,fn){
@@ -732,6 +859,7 @@ press($("findinst"),function(){
 });
 press($("trackvocals"),function(){if(engine.track&&engine.track.name)engine.setTrackVocals(!engine.track.vocalsOn);});
 press($("trackguitar"),function(){if(engine.track&&engine.track.name)engine.setTrackGuitar(!engine.track.guitarOn);});
+press($("retryai"),function(){if(engine.practiceFile)engine.startSplit(engine.practiceFile);});
 $("styles").innerHTML=STYLES.map(function(s){return '\x3cbutton class="chip" type="button" data-feel="'+s.id+'"\x3e'+s.label+'\x3c/button\x3e';}).join("");
 $("styles").querySelectorAll(".chip").forEach(function(btn){
   press(btn,function(){engine.setFeel(btn.dataset.feel);});
