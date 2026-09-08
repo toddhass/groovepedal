@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-cymbals -->
+  <!-- pages-redeploy 2026-09-08-all-voices -->
   <style>
     :root {
       --bg:#11100e; --fg:#f7f4ee; --muted:#cfc9bc; --card:#1f1c18; --secondary:#2d2a24;
@@ -351,19 +351,45 @@ Synth.prototype.spray=function(t,dec,freqs){
   return {mix:mix, nodes:nodes};
 };
 Synth.prototype.kick=function(t,v){
-  var o=this.ctx.createOscillator();o.type="sine";
-  o.frequency.setValueAtTime(98,t);o.frequency.exponentialRampToValueAtTime(46,t+.08);
-  var g=this.env(t,1.35*v,.003,.38);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.45);
-  var click=this.ns(t,.018); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1800;
-  var cg=this.env(t,.22*v,.001,.03); click.connect(hp); hp.connect(cg); cg.connect(this.dest);
-  this.reap(o,[g,click,hp,cg]);
+  var body=this.ctx.createOscillator(); body.type="sine";
+  body.frequency.setValueAtTime(58,t); body.frequency.exponentialRampToValueAtTime(47,t+.22);
+  var beater=this.ctx.createOscillator(); beater.type="sine";
+  beater.frequency.setValueAtTime(148,t); beater.frequency.exponentialRampToValueAtTime(52,t+.06);
+  var bg=this.env(t,1.15*v,.004,.42); var ag=this.env(t,.55*v,.002,.09);
+  body.connect(bg); beater.connect(ag); bg.connect(this.dest); ag.connect(this.dest);
+  body.start(t); beater.start(t); body.stop(t+.5); beater.stop(t+.14);
+  var click=this.ns(t,.012); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=2500;
+  var cg=this.env(t,.18*v,.001,.02); click.connect(hp); hp.connect(cg); cg.connect(this.dest);
+  this.reap(body,[beater,bg,ag,click,hp,cg]);
 };
 Synth.prototype.snare=function(t,v){
-  var n=this.ns(t,.22);var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=1750;bp.Q.value=1.1;
-  var g=this.env(t,.72*v,.002,.18);n.connect(bp);bp.connect(g);g.connect(this.dest);
-  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(185,t);o.frequency.exponentialRampToValueAtTime(150,t+.08);
-  var tg=this.env(t,.42*v,.002,.12);o.connect(tg);tg.connect(this.dest);o.start(t);o.stop(t+.2);
-  this.reap(n,[bp,g,o,tg]);
+  var shell=this.ctx.createOscillator(); shell.type="sine";
+  shell.frequency.setValueAtTime(205,t); shell.frequency.exponentialRampToValueAtTime(168,t+.07);
+  var sg=this.env(t,.38*v,.002,.11); shell.connect(sg); sg.connect(this.dest);
+  shell.start(t); shell.stop(t+.18);
+  var wires=this.ns(t,.2); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=3400; bp.Q.value=0.85;
+  var wg=this.env(t,.55*v,.0015,.16); wires.connect(bp); bp.connect(wg); wg.connect(this.dest);
+  var snap=this.ns(t,.045); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7000;
+  var ng=this.env(t,.28*v,.001,.04); snap.connect(hp); hp.connect(ng); ng.connect(this.dest);
+  this.reap(shell,[sg,wires,bp,wg,snap,hp,ng]);
+};
+Synth.prototype.clap=function(t,v){
+  var times=[0,.012,.024,.04], amps=[.55,.7,.45,.28], nodes=[], i, n, bp, g;
+  for(i=0;i<times.length;i++){
+    n=this.ns(t+times[i],.05);
+    bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1150; bp.Q.value=1.1;
+    g=this.env(t+times[i], amps[i]*v,.001,.05);
+    n.connect(bp); bp.connect(g); g.connect(this.dest);
+    nodes.push(n,bp,g);
+  }
+  this.reap(nodes[0], nodes.slice(1));
+};
+Synth.prototype.rim=function(t,v){
+  var o=this.ctx.createOscillator(); o.type="triangle"; o.frequency.setValueAtTime(780,t);
+  var g=this.env(t,.42*v,.001,.045); o.connect(g); g.connect(this.dest); o.start(t); o.stop(t+.08);
+  var n=this.ns(t,.018); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=900; bp.Q.value=2.2;
+  var ng=this.env(t,.32*v,.001,.02); n.connect(bp); bp.connect(ng); ng.connect(this.dest);
+  this.reap(o,[g,n,bp,ng]);
 };
 Synth.prototype.hat=function(t,v,dec){
   var open=dec>0.12;
@@ -448,168 +474,208 @@ Synth.prototype.china=function(t,v){
   this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,bp,g,n,nhp,nbp,ng]));
 };
 Synth.prototype.tom=function(t,v,f,dec){
-  dec=dec||.22;
-  var o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*.55,t+dec*.7);
-  var g=this.env(t,.78*v,.003,dec); o.connect(g); g.connect(this.dest); o.start(t); o.stop(t+dec+.08);
-  this.reap(o,[g]);
+  dec=dec||.24;
+  var fund=this.ctx.createOscillator(); fund.type="sine";
+  fund.frequency.setValueAtTime(f,t); fund.frequency.exponentialRampToValueAtTime(f*.86,t+dec*.45);
+  var over=this.ctx.createOscillator(); over.type="sine";
+  over.frequency.setValueAtTime(f*1.57,t); over.frequency.exponentialRampToValueAtTime(f*1.32,t+dec*.4);
+  var fg=this.env(t,.72*v,.003,dec); var og=this.env(t,.22*v,.003,dec*.7);
+  fund.connect(fg); over.connect(og); fg.connect(this.dest); og.connect(this.dest);
+  fund.start(t); over.start(t); fund.stop(t+dec+.1); over.stop(t+dec+.08);
+  var skin=this.ns(t,.04); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.max(120,f*2.2); bp.Q.value=1.1;
+  var sg=this.env(t,.2*v,.001,.05); skin.connect(bp); bp.connect(sg); sg.connect(this.dest);
+  this.reap(fund,[over,fg,og,skin,bp,sg]);
 };
 Synth.prototype.cowbell=function(t,v){
-  var a=this.ctx.createOscillator();a.type="square";a.frequency.setValueAtTime(845,t);
-  var b=this.ctx.createOscillator();b.type="square";b.frequency.setValueAtTime(540,t);
-  var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=920;bp.Q.value=3.2;
-  var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=380;
-  var g=this.env(t,.42*v,.001,.2);
-  a.connect(bp);b.connect(bp);bp.connect(hp);hp.connect(g);g.connect(this.dest);
-  a.start(t);b.start(t);a.stop(t+.26);b.stop(t+.26);
-  this.reap(a,[b,bp,hp,g]);
+  var a=this.ctx.createOscillator(); a.type="square"; a.frequency.setValueAtTime(587,t);
+  var b=this.ctx.createOscillator(); b.type="square"; b.frequency.setValueAtTime(845,t);
+  var c=this.ctx.createOscillator(); c.type="triangle"; c.frequency.setValueAtTime(1244,t);
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=940; bp.Q.value=4.5;
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=420;
+  var ag=this.ctx.createGain(); ag.gain.value=.55;
+  var bg=this.ctx.createGain(); bg.gain.value=.4;
+  var cg=this.ctx.createGain(); cg.gain.value=.12;
+  a.connect(ag); b.connect(bg); c.connect(cg); ag.connect(bp); bg.connect(bp); cg.connect(bp); bp.connect(hp);
+  var g=this.env(t,.38*v,.001,.28); hp.connect(g); g.connect(this.dest);
+  a.start(t); b.start(t); c.start(t); a.stop(t+.32); b.stop(t+.32); c.stop(t+.22);
+  this.reap(a,[b,c,bp,hp,ag,bg,cg,g]);
 };
 Synth.prototype.trig=function(voice,t,v){
   v=Math.max(.05,Math.min(1.4,v));
   if(voice==="kick")this.kick(t,v);
   else if(voice==="snare")this.snare(t,v);
-  else if(voice==="clap")this.snare(t,v*.9);
-  else if(voice==="rim")this.tom(t,v*.8,420,.08);
-  else if(voice==="hat")this.hat(t,v,.055);
-  else if(voice==="openHat")this.hat(t,v,.26);
+  else if(voice==="clap")this.clap(t,v);
+  else if(voice==="rim")this.rim(t,v);
+  else if(voice==="hat")this.hat(t,v,.05);
+  else if(voice==="openHat")this.hat(t,v,.28);
   else if(voice==="pedalHat")this.chick(t,v);
   else if(voice==="ride")this.ride(t,v);
   else if(voice==="crash")this.crash(t,v);
   else if(voice==="splash")this.splash(t,v);
   else if(voice==="china")this.china(t,v);
-  else if(voice==="highTom")this.tom(t,v,235,.18);
-  else if(voice==="tom")this.tom(t,v,155,.24);
-  else if(voice==="floor")this.tom(t,v,88,.34);
+  else if(voice==="highTom")this.tom(t,v,220,.2);
+  else if(voice==="tom")this.tom(t,v,148,.26);
+  else if(voice==="floor")this.tom(t,v,82,.38);
   else if(voice==="cowbell")this.cowbell(t,v);
 };
 Synth.prototype.bass=function(t,v,f){
   if(!f)return;
-  var dur=.62;
-  var sub=this.ctx.createOscillator(); sub.type="sine"; sub.frequency.setValueAtTime(f,t);
+  var dur=.7;
+  var sub=this.ctx.createOscillator(); sub.type="sine";
+  sub.frequency.setValueAtTime(f*1.03,t); sub.frequency.exponentialRampToValueAtTime(f,t+.04);
   var body=this.ctx.createOscillator(); body.type="triangle"; body.frequency.setValueAtTime(f,t);
   var lp=this.ctx.createBiquadFilter(); lp.type="lowpass";
-  lp.frequency.setValueAtTime(Math.min(480,f*5),t);
-  lp.frequency.exponentialRampToValueAtTime(160,t+.28);
-  var sg=this.ctx.createGain(); sg.gain.value=.85;
-  var bg=this.ctx.createGain(); bg.gain.value=.28;
-  var mix=this.ctx.createGain();
-  sub.connect(sg); sg.connect(mix);
-  body.connect(bg); bg.connect(lp); lp.connect(mix);
-  var g=this.env(t,.78*v,.007,dur);
-  mix.connect(g); g.connect(this.dest);
+  lp.frequency.setValueAtTime(Math.min(420,f*4.2),t);
+  try{ lp.frequency.exponentialRampToValueAtTime(140,t+.32); }catch(e){}
+  var sg=this.ctx.createGain(); sg.gain.value=.9;
+  var bg=this.ctx.createGain(); bg.gain.value=.22;
+  sub.connect(sg); body.connect(bg); sg.connect(lp); bg.connect(lp);
+  var g=this.env(t,.82*v,.008,dur); lp.connect(g); g.connect(this.dest);
+  var pick=this.ns(t,.012); var php=this.ctx.createBiquadFilter(); php.type="highpass"; php.frequency.value=600;
+  var pg=this.env(t,.08*v,.001,.03); pick.connect(php); php.connect(pg); pg.connect(this.dest);
   sub.start(t); body.start(t); sub.stop(t+dur+.08); body.stop(t+dur+.08);
-  this.reap(sub,[body,lp,sg,bg,mix,g]);
+  this.reap(sub,[body,lp,sg,bg,g,pick,php,pg]);
 };
 Synth.prototype.guitar=function(t,v,f){
   if(!f)return;
-  var dur=.7, period=1/Math.max(70,Math.min(880,f));
-  var burst=this.ns(t, Math.min(.016, period*4));
+  var dur=.85, period=1/Math.max(70,Math.min(880,f));
+  var burst=this.ns(t, Math.min(.014, period*3));
   var delay=this.ctx.createDelay(.05); delay.delayTime.value=period;
   var lp=this.ctx.createBiquadFilter(); lp.type="lowpass";
-  lp.frequency.setValueAtTime(Math.min(4200,f*9),t);
-  lp.frequency.exponentialRampToValueAtTime(Math.max(280,f*1.6),t+dur*.65);
+  lp.frequency.setValueAtTime(Math.min(3800,f*8),t);
+  try{ lp.frequency.exponentialRampToValueAtTime(Math.max(260,f*1.5),t+dur*.7); }catch(e){}
   var fb=this.ctx.createGain();
-  fb.gain.setValueAtTime(.984,t);
+  fb.gain.setValueAtTime(.986,t);
   try{ fb.gain.exponentialRampToValueAtTime(.0001,t+dur); }catch(e){ fb.gain.linearRampToValueAtTime(0,t+dur); }
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=90;
-  var g=this.env(t,.48*v,.002,dur);
+  var body=this.ctx.createBiquadFilter(); body.type="bandpass"; body.frequency.value=Math.min(280,f*1.8); body.Q.value=1.1;
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=80;
+  var g=this.env(t,.42*v,.002,dur);
   burst.connect(delay); delay.connect(lp); lp.connect(fb); fb.connect(delay);
   lp.connect(hp); hp.connect(g); g.connect(this.dest);
+  lp.connect(body); var bg=this.env(t,.12*v,.004,dur*.8); body.connect(bg); bg.connect(this.dest);
   var clock=this.ctx.createOscillator(); clock.start(t); clock.stop(t+dur+.08);
-  this.reap(clock,[burst,delay,lp,fb,hp,g]);
+  this.reap(clock,[burst,delay,lp,fb,hp,g,body,bg]);
 };
 Synth.prototype.piano=function(t,v,f){
   if(!f)return;
-  var dur=.85+Math.max(0,(180-f)/500);
-  var mix=this.ctx.createGain(); mix.gain.value=.26*v;
-  var parts=[1,2.004,3.012], amps=[1,.38,.14], nodes=[], i, o, pg;
-  for(i=0;i<parts.length;i++){
-    o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f*parts[i],t);
+  var dur=.55+Math.max(0,(220-f)/280);
+  var mix=this.ctx.createGain(); mix.gain.value=.24*v;
+  var B=0.0004, nodes=[], i, n, o, pg, pf;
+  var amps=[1,.4,.16,.07];
+  for(i=0;i<4;i++){
+    n=i+1; pf=n*f*Math.sqrt(1+B*n*n);
+    o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(pf,t);
     pg=this.ctx.createGain(); pg.gain.value=amps[i];
-    o.connect(pg); pg.connect(mix); o.start(t); o.stop(t+dur);
+    o.connect(pg); pg.connect(mix); o.start(t); o.stop(t+dur*(1-i*0.12));
     nodes.push(o,pg);
   }
-  var hammer=this.ns(t,.025); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1800;
-  var hg=this.env(t,.07*v,.001,.04); hammer.connect(hp); hp.connect(hg); hg.connect(this.dest);
-  var g=this.env(t,1,.004,dur*.9); mix.connect(g); g.connect(this.dest);
+  var hammer=this.ns(t,.02); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=2200;
+  var hg=this.env(t,.06*v,.001,.03); hammer.connect(hp); hp.connect(hg); hg.connect(this.dest);
+  var g=this.env(t,1,.003,dur*.92); mix.connect(g); g.connect(this.dest);
   this.reap(nodes[0], nodes.slice(1).concat([mix,g,hammer,hp,hg]));
 };
 Synth.prototype.organ=function(t,v,f){
   if(!f)return;
-  var dur=.48, mix=this.ctx.createGain(); mix.gain.value=.2*v;
-  var parts=[1,2,3], amps=[.7,.55,.28], nodes=[], i, o, pg;
+  var dur=.5, mix=this.ctx.createGain(); mix.gain.value=.18*v;
+  var parts=[1,2,3,4], amps=[.75,.5,.28,.12], nodes=[], i, o, pg;
   for(i=0;i<parts.length;i++){
     o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f*parts[i],t);
     pg=this.ctx.createGain(); pg.gain.value=amps[i];
     o.connect(pg); pg.connect(mix); o.start(t); o.stop(t+dur);
     nodes.push(o,pg);
   }
-  var g=this.env(t,1,.018,dur*.85); mix.connect(g); g.connect(this.dest);
-  this.reap(nodes[0], nodes.slice(1).concat([mix,g]));
+  var click=this.ns(t,.008); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=3000;
+  var cg=this.env(t,.04*v,.001,.015); click.connect(hp); hp.connect(cg); cg.connect(this.dest);
+  var g=this.env(t,1,.012,dur*.88); mix.connect(g); g.connect(this.dest);
+  this.reap(nodes[0], nodes.slice(1).concat([mix,g,click,hp,cg]));
 };
 Synth.prototype.brass=function(t,v,f,formant,atk){
   if(!f)return;
-  var dur=.46;
-  var a=this.ctx.createOscillator(); a.type="sawtooth"; a.frequency.setValueAtTime(f,t);
-  var b=this.ctx.createOscillator(); b.type="triangle"; b.frequency.setValueAtTime(f*1.002,t);
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=formant; bp.Q.value=1.6;
-  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.setValueAtTime(formant*1.8,t);
-  lp.frequency.setTargetAtTime(formant*1.15,t+atk,.08);
-  var ag=this.ctx.createGain(); ag.gain.value=.7;
-  var bg=this.ctx.createGain(); bg.gain.value=.35;
+  var dur=.5;
+  var a=this.ctx.createOscillator(); a.type="sawtooth";
+  a.frequency.setValueAtTime(f*.97,t); a.frequency.exponentialRampToValueAtTime(f,t+atk+.02);
+  var b=this.ctx.createOscillator(); b.type="triangle"; b.frequency.setValueAtTime(f*1.003,t);
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=formant; bp.Q.value=1.7;
+  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass";
+  lp.frequency.setValueAtTime(formant*2.1,t); lp.frequency.setTargetAtTime(formant*1.1,t+atk,.1);
+  var ag=this.ctx.createGain(); ag.gain.value=.62;
+  var bg=this.ctx.createGain(); bg.gain.value=.4;
   a.connect(ag); b.connect(bg); ag.connect(bp); bg.connect(bp); bp.connect(lp);
-  var breath=this.ns(t,dur); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1200;
-  var ng=this.env(t,.04*v,atk,dur); breath.connect(hp); hp.connect(ng); ng.connect(this.dest);
-  var g=this.env(t,.28*v,atk,dur); lp.connect(g); g.connect(this.dest);
-  a.start(t); b.start(t); a.stop(t+dur+.05); b.stop(t+dur+.05);
+  var breath=this.ns(t,dur); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1500;
+  var ng=this.env(t,.035*v,atk,dur); breath.connect(hp); hp.connect(ng); ng.connect(this.dest);
+  var g=this.env(t,.26*v,atk,dur); lp.connect(g); g.connect(this.dest);
+  a.start(t); b.start(t); a.stop(t+dur+.06); b.stop(t+dur+.06);
   this.reap(a,[b,bp,lp,ag,bg,g,breath,hp,ng]);
 };
 Synth.prototype.reed=function(t,v,f,formant,atk){
   if(!f)return;
-  var dur=.42;
+  var dur=.48;
   var o=this.ctx.createOscillator(); o.type="sawtooth"; o.frequency.setValueAtTime(f,t);
   var odd=this.ctx.createOscillator(); odd.type="sine"; odd.frequency.setValueAtTime(f*3,t);
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=formant; bp.Q.value=1.8;
-  var og=this.ctx.createGain(); og.gain.value=.65;
-  var dg=this.ctx.createGain(); dg.gain.value=.18;
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=formant; bp.Q.value=2;
+  var og=this.ctx.createGain(); og.gain.value=.55;
+  var dg=this.ctx.createGain(); dg.gain.value=.2;
   o.connect(og); odd.connect(dg); og.connect(bp); dg.connect(bp);
-  var breath=this.ns(t,dur); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1600;
-  var ng=this.env(t,.05*v,atk,dur); breath.connect(hp); hp.connect(ng); ng.connect(this.dest);
-  var g=this.env(t,.24*v,atk,dur); bp.connect(g); g.connect(this.dest);
-  o.start(t); odd.start(t); o.stop(t+dur+.05); odd.stop(t+dur+.05);
+  var breath=this.ns(t,dur); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1800;
+  var ng=this.env(t,.045*v,atk,dur); breath.connect(hp); hp.connect(ng); ng.connect(this.dest);
+  var g=this.env(t,.22*v,atk,dur); bp.connect(g); g.connect(this.dest);
+  aVib(this,o,f,t,dur,4.6,.003);
+  o.start(t); odd.start(t); o.stop(t+dur+.06); odd.stop(t+dur+.06);
   this.reap(o,[odd,bp,og,dg,g,breath,hp,ng]);
+};
+Synth.prototype.clarinet=function(t,v,f){
+  if(!f)return;
+  var dur=.48, mix=this.ctx.createGain(); mix.gain.value=.22*v;
+  var parts=[1,3,5], amps=[1,.28,.1], nodes=[], i, o, pg;
+  for(i=0;i<parts.length;i++){
+    o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f*parts[i],t);
+    pg=this.ctx.createGain(); pg.gain.value=amps[i];
+    o.connect(pg); pg.connect(mix); o.start(t); o.stop(t+dur);
+    nodes.push(o,pg);
+  }
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.min(1600,f*2.6); bp.Q.value=1.4;
+  mix.connect(bp);
+  var g=this.env(t,1,.04,dur); bp.connect(g); g.connect(this.dest);
+  this.reap(nodes[0], nodes.slice(1).concat([mix,bp,g]));
 };
 Synth.prototype.flute=function(t,v,f){
   if(!f)return;
-  var dur=.4;
+  var dur=.46;
   var o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t);
   var h=this.ctx.createOscillator(); h.type="sine"; h.frequency.setValueAtTime(f*2,t);
-  var hg=this.ctx.createGain(); hg.gain.value=.12;
-  var breath=this.ns(t,dur); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.min(2400,f*3); bp.Q.value=.8;
-  var ng=this.env(t,.06*v,.04,dur); breath.connect(bp); bp.connect(ng); ng.connect(this.dest);
-  var g=this.env(t,.22*v,.045,dur); o.connect(g); h.connect(hg); hg.connect(g); g.connect(this.dest);
+  var hg=this.ctx.createGain(); hg.gain.value=.09;
+  var breath=this.ns(t,dur); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.min(2600,f*3.2); bp.Q.value=.7;
+  var ng=this.env(t,.05*v,.05,dur); breath.connect(bp); bp.connect(ng); ng.connect(this.dest);
+  var g=this.env(t,.2*v,.05,dur); o.connect(g); h.connect(hg); hg.connect(g); g.connect(this.dest);
+  aVib(this,o,f,t,dur,5.2,.0025);
   o.start(t); h.start(t); o.stop(t+dur+.05); h.stop(t+dur+.05);
   this.reap(o,[h,hg,g,breath,bp,ng]);
 };
 Synth.prototype.bow=function(t,v,f,bright){
   if(!f)return;
-  var dur=.55;
+  var dur=.62;
   var a=this.ctx.createOscillator(); a.type="sawtooth"; a.frequency.setValueAtTime(f,t);
-  var b=this.ctx.createOscillator(); b.type="sawtooth"; b.frequency.setValueAtTime(f*1.004,t);
-  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=bright; lp.Q.value=.7;
-  var ag=this.ctx.createGain(); ag.gain.value=.5;
-  var bg=this.ctx.createGain(); bg.gain.value=.5;
-  a.connect(ag); b.connect(bg); ag.connect(lp); bg.connect(lp);
-  var g=this.env(t,.2*v,.07,dur); lp.connect(g); g.connect(this.dest);
+  var b=this.ctx.createOscillator(); b.type="triangle"; b.frequency.setValueAtTime(f*1.0035,t);
+  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=bright; lp.Q.value=.65;
+  var body=this.ctx.createBiquadFilter(); body.type="bandpass"; body.frequency.value=Math.min(900,f*2.4); body.Q.value=1.2;
+  var ag=this.ctx.createGain(); ag.gain.value=.42;
+  var bg=this.ctx.createGain(); bg.gain.value=.58;
+  a.connect(ag); b.connect(bg); ag.connect(lp); bg.connect(lp); lp.connect(body);
+  var g=this.env(t,.2*v,.09,dur); body.connect(g); g.connect(this.dest);
+  aVib(this,a,f,t,dur,5.4,.002);
   a.start(t); b.start(t); a.stop(t+dur+.08); b.stop(t+dur+.08);
-  this.reap(a,[b,lp,ag,bg,g]);
+  this.reap(a,[b,lp,body,ag,bg,g]);
 };
 Synth.prototype.boom=function(t,v,f){
-  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f*1.35,t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(38,f*.72),t+.32);
-  var g=this.env(t,.62*v,.008,.7);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.75);
-  var skin=this.ns(t,.08); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.max(80,f*2);
-  var sg=this.env(t,.18*v,.002,.12); skin.connect(bp); bp.connect(sg); sg.connect(this.dest);
-  this.reap(o,[g,skin,bp,sg]);
+  var o=this.ctx.createOscillator(); o.type="sine";
+  o.frequency.setValueAtTime(f*1.18,t); o.frequency.exponentialRampToValueAtTime(Math.max(36,f*.92),t+.4);
+  var over=this.ctx.createOscillator(); over.type="sine"; over.frequency.setValueAtTime(f*1.72,t);
+  var g=this.env(t,.7*v,.01,.95); var og=this.env(t,.16*v,.01,.4);
+  o.connect(g); over.connect(og); g.connect(this.dest); og.connect(this.dest);
+  o.start(t); over.start(t); o.stop(t+1.05); over.stop(t+.5);
+  var skin=this.ns(t,.1); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=Math.max(70,f*1.8); bp.Q.value=0.9;
+  var sg=this.env(t,.16*v,.003,.14); skin.connect(bp); bp.connect(sg); sg.connect(this.dest);
+  this.reap(o,[over,g,og,skin,bp,sg]);
 };
 Synth.prototype.play=function(kind,t,v,f){
   if(!f)return;
@@ -618,17 +684,25 @@ Synth.prototype.play=function(kind,t,v,f){
   else if(kind==="guitar")this.guitar(t,v,f);
   else if(kind==="piano")this.piano(t,v,f);
   else if(kind==="organ")this.organ(t,v,f);
-  else if(kind==="trumpet")this.brass(t,v,f,1250,.035);
-  else if(kind==="trombone")this.brass(t,v,f,620,.05);
-  else if(kind==="horn")this.brass(t,v,f,860,.06);
-  else if(kind==="sax")this.reed(t,v,f,1080,.04);
-  else if(kind==="clarinet")this.reed(t,v,f,1380,.032);
-  else if(kind==="oboe")this.reed(t,v,f,1650,.038);
+  else if(kind==="trumpet")this.brass(t,v,f,1220,.04);
+  else if(kind==="trombone")this.brass(t,v,f,580,.06);
+  else if(kind==="horn")this.brass(t,v,f,820,.07);
+  else if(kind==="sax")this.reed(t,v,f,1050,.045);
+  else if(kind==="clarinet")this.clarinet(t,v,f);
+  else if(kind==="oboe")this.reed(t,v,f,1680,.04);
   else if(kind==="flute")this.flute(t,v,f);
-  else if(kind==="violin")this.bow(t,v,f,2200);
-  else if(kind==="cello")this.bow(t,v,f,900);
+  else if(kind==="violin")this.bow(t,v,f,2100);
+  else if(kind==="cello")this.bow(t,v,f,780);
   else if(kind==="timpani")this.boom(t,v,f);
 };
+function aVib(synth,osc,f,t,dur,rate,depth){
+  try{
+    var lfo=synth.ctx.createOscillator(); lfo.frequency.setValueAtTime(rate,t);
+    var g=synth.ctx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(f*depth,t+.12);
+    lfo.connect(g); g.connect(osc.frequency); lfo.start(t); lfo.stop(t+dur);
+    lfo.onended=function(){ try{ lfo.disconnect(); g.disconnect(); }catch(e){} };
+  }catch(e){}
+}
 
 var INST=[
   {id:"bass",label:"Bass",layer:"bass",oct:1,group:"Rhythm section"},
