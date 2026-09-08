@@ -1,4 +1,4 @@
-Function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
+function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
 
 function SampleSynth(ctx, dest) {
