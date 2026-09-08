@@ -1,6 +1,5 @@
-// Additive/noise cymbal synthesis, ported from the original bakeCym().
-// Renders each cymbal once to an AudioBuffer at load time; playback is just
-// a buffer source, so runtime cost is negligible.
+// Additive/noise cymbal synthesis. Darker, quieter bake so 16th hats
+// do not turn into ice-pick noise on phone speakers.
 
 export interface CymSpec {
   dur: number;
@@ -25,13 +24,13 @@ export interface CymSpec {
 }
 
 export const CYM_SPECS: Record<string, CymSpec> = {
-  closed: { dur: 0.09, f0: 620, n: 8, exp: 1.22, fall: 0.48, decay: 0.05, dark: 0.35, bright: 1.7, noise: 0.22, nDecay: 0.28, stick: 0.003, stickAmp: 1.1, hp: 2400, drive: 1.6, peak: 0.9, seed: 11, mid: 0.7 },
-  open: { dur: 0.32, f0: 480, n: 10, exp: 1.28, fall: 0.5, decay: 0.14, dark: 0.4, bright: 1.45, noise: 0.18, nDecay: 0.4, stick: 0.004, stickAmp: 0.9, hp: 1800, drive: 1.45, peak: 0.88, seed: 17, mid: 0.85 },
-  chick: { dur: 0.06, f0: 540, n: 7, exp: 1.18, fall: 0.55, decay: 0.025, dark: 0.5, bright: 1.1, noise: 0.16, nDecay: 0.22, stick: 0.0025, stickAmp: 1.3, hp: 900, drive: 1.7, peak: 0.85, seed: 23, mid: 1.2 },
-  ride: { dur: 0.7, f0: 290, n: 10, exp: 1.33, fall: 0.62, decay: 0.22, dark: 0.55, bright: 1.15, noise: 0.08, nDecay: 0.35, stick: 0.0035, stickAmp: 0.7, hp: 600, drive: 1.25, peak: 0.86, seed: 31, mid: 0.7, bell: [[2280, 0.9, 0.22], [3410, 0.45, 0.14], [4860, 0.22, 0.1]] },
-  crash: { dur: 1.35, f0: 265, n: 10, exp: 1.36, fall: 0.46, decay: 0.48, dark: 0.42, bright: 1.55, noise: 0.14, nDecay: 0.5, stick: 0.006, stickAmp: 0.85, hp: 380, drive: 1.35, peak: 0.92, seed: 41, mid: 0.9 },
-  splash: { dur: 0.22, f0: 720, n: 8, exp: 1.3, fall: 0.42, decay: 0.07, dark: 0.3, bright: 1.8, noise: 0.16, nDecay: 0.3, stick: 0.003, stickAmp: 1, hp: 2200, drive: 1.5, peak: 0.88, seed: 47, mid: 0.6 },
-  china: { dur: 0.55, f0: 240, n: 8, exp: 1.24, fall: 0.4, decay: 0.18, dark: 0.48, bright: 1.05, noise: 0.2, nDecay: 0.4, stick: 0.005, stickAmp: 0.8, hp: 500, drive: 1.7, peak: 0.9, seed: 59, mid: 1.45, trash: 0.35 },
+  closed: { dur: 0.07, f0: 480, n: 6, exp: 1.18, fall: 0.62, decay: 0.035, dark: 0.55, bright: 0.7, noise: 0.12, nDecay: 0.22, stick: 0.002, stickAmp: 0.7, hp: 3200, drive: 1.15, peak: 0.55, seed: 11, mid: 0.55 },
+  open: { dur: 0.26, f0: 400, n: 8, exp: 1.22, fall: 0.58, decay: 0.11, dark: 0.52, bright: 0.75, noise: 0.1, nDecay: 0.34, stick: 0.003, stickAmp: 0.55, hp: 2400, drive: 1.1, peak: 0.58, seed: 17, mid: 0.65 },
+  chick: { dur: 0.05, f0: 420, n: 5, exp: 1.14, fall: 0.6, decay: 0.02, dark: 0.62, bright: 0.55, noise: 0.1, nDecay: 0.18, stick: 0.002, stickAmp: 0.8, hp: 1400, drive: 1.2, peak: 0.5, seed: 23, mid: 0.9 },
+  ride: { dur: 0.55, f0: 250, n: 8, exp: 1.28, fall: 0.7, decay: 0.18, dark: 0.62, bright: 0.65, noise: 0.05, nDecay: 0.28, stick: 0.003, stickAmp: 0.45, hp: 900, drive: 1.05, peak: 0.52, seed: 31, mid: 0.55, bell: [[1980, 0.45, 0.16], [2860, 0.22, 0.1]] },
+  crash: { dur: 1.05, f0: 230, n: 8, exp: 1.3, fall: 0.55, decay: 0.4, dark: 0.5, bright: 0.85, noise: 0.09, nDecay: 0.42, stick: 0.005, stickAmp: 0.5, hp: 520, drive: 1.12, peak: 0.62, seed: 41, mid: 0.7 },
+  splash: { dur: 0.18, f0: 560, n: 6, exp: 1.24, fall: 0.5, decay: 0.055, dark: 0.42, bright: 0.9, noise: 0.1, nDecay: 0.24, stick: 0.0025, stickAmp: 0.6, hp: 2600, drive: 1.15, peak: 0.55, seed: 47, mid: 0.5 },
+  china: { dur: 0.42, f0: 210, n: 6, exp: 1.2, fall: 0.48, decay: 0.14, dark: 0.55, bright: 0.6, noise: 0.12, nDecay: 0.32, stick: 0.004, stickAmp: 0.5, hp: 700, drive: 1.2, peak: 0.58, seed: 59, mid: 1.05, trash: 0.18 },
 };
 
 export function bakeCym(ctx: BaseAudioContext, spec: CymSpec): AudioBuffer {
@@ -46,20 +45,20 @@ export function bakeCym(ctx: BaseAudioContext, spec: CymSpec): AudioBuffer {
     return (seed >>> 0) / 4294967296;
   };
 
-  const fr: number[] = [], am: number[] = [], inc: number[] = [], ph: number[] = [], mul: number[] = [];
+  const am: number[] = [], inc: number[] = [], ph: number[] = [], mul: number[] = [];
   for (let n = 1; n <= spec.n; n++) {
     const f = spec.f0 * Math.pow(n, spec.exp) * (1 + 0.016 * Math.sin(n * 2.63 + spec.seed));
-    if (f > 14000) continue;
-    let a = (1 / Math.pow(n, spec.fall)) * (f > 5500 ? spec.bright : 1);
+    if (f > 9000) continue;
+    let a = (1 / Math.pow(n, spec.fall)) * (f > 4500 ? spec.bright : 1);
     if (spec.mid && f > 900 && f < 2800) a *= spec.mid;
-    fr.push(f); am.push(a);
+    am.push(a);
     inc.push((Math.PI * 2 * f) / sr);
     ph.push(0);
-    mul.push(Math.exp(-1 / (sr * (spec.decay * (spec.dark + (1 - spec.dark) * Math.max(0.18, 1 - f / 11000))))));
+    mul.push(Math.exp(-1 / (sr * (spec.decay * (spec.dark + (1 - spec.dark) * Math.max(0.18, 1 - f / 9000))))));
   }
   if (spec.bell) {
     for (const [f, a, decaySec] of spec.bell) {
-      fr.push(f); am.push(a);
+      am.push(a);
       inc.push((Math.PI * 2 * f) / sr);
       ph.push(0);
       mul.push(Math.exp(-1 / (sr * decaySec)));
