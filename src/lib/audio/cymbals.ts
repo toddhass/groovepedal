@@ -23,13 +23,13 @@ type CymSpec = {
 };
 
 const SPECS: Record<CymId, CymSpec> = {
-  closed: { dur: 0.09, f0: 620, n: 8, exp: 1.22, fall: 0.48, decay: 0.05, dark: 0.35, bright: 1.7, noise: 0.22, nDecay: 0.28, stick: 0.003, stickAmp: 1.1, hp: 2400, drive: 1.6, peak: 0.9, seed: 11, mid: 0.7 },
-  open: { dur: 0.32, f0: 480, n: 10, exp: 1.28, fall: 0.5, decay: 0.14, dark: 0.4, bright: 1.45, noise: 0.18, nDecay: 0.4, stick: 0.004, stickAmp: 0.9, hp: 1800, drive: 1.45, peak: 0.88, seed: 17, mid: 0.85 },
-  chick: { dur: 0.06, f0: 540, n: 7, exp: 1.18, fall: 0.55, decay: 0.025, dark: 0.5, bright: 1.1, noise: 0.16, nDecay: 0.22, stick: 0.0025, stickAmp: 1.3, hp: 900, drive: 1.7, peak: 0.85, seed: 23, mid: 1.2 },
-  ride: { dur: 0.7, f0: 290, n: 10, exp: 1.33, fall: 0.62, decay: 0.22, dark: 0.55, bright: 1.15, noise: 0.08, nDecay: 0.35, stick: 0.0035, stickAmp: 0.7, hp: 600, drive: 1.25, peak: 0.86, seed: 31, mid: 0.7, bell: [[2280, 0.9, 0.22], [3410, 0.45, 0.14], [4860, 0.22, 0.1]] },
-  crash: { dur: 1.35, f0: 265, n: 10, exp: 1.36, fall: 0.46, decay: 0.48, dark: 0.42, bright: 1.55, noise: 0.14, nDecay: 0.5, stick: 0.006, stickAmp: 0.85, hp: 380, drive: 1.35, peak: 0.92, seed: 41, mid: 0.9 },
-  splash: { dur: 0.22, f0: 720, n: 8, exp: 1.3, fall: 0.42, decay: 0.07, dark: 0.3, bright: 1.8, noise: 0.16, nDecay: 0.3, stick: 0.003, stickAmp: 1, hp: 2200, drive: 1.5, peak: 0.88, seed: 47, mid: 0.6 },
-  china: { dur: 0.55, f0: 240, n: 8, exp: 1.24, fall: 0.4, decay: 0.18, dark: 0.48, bright: 1.05, noise: 0.2, nDecay: 0.4, stick: 0.005, stickAmp: 0.8, hp: 500, drive: 1.7, peak: 0.9, seed: 59, mid: 1.45, trash: 0.35 },
+  closed: { dur: 0.12, f0: 420, n: 16, exp: 1.18, fall: 0.72, decay: 0.07, dark: 0.72, bright: 0.45, noise: 0.1, nDecay: 0.22, stick: 0.0025, stickAmp: 0.7, hp: 1400, drive: 1.15, peak: 0.82, seed: 11, mid: 1.1 },
+  open: { dur: 0.42, f0: 340, n: 18, exp: 1.2, fall: 0.68, decay: 0.2, dark: 0.7, bright: 0.5, noise: 0.08, nDecay: 0.38, stick: 0.003, stickAmp: 0.55, hp: 1100, drive: 1.12, peak: 0.8, seed: 17, mid: 1.15 },
+  chick: { dur: 0.07, f0: 380, n: 12, exp: 1.14, fall: 0.7, decay: 0.03, dark: 0.78, bright: 0.4, noise: 0.07, nDecay: 0.18, stick: 0.002, stickAmp: 0.9, hp: 700, drive: 1.18, peak: 0.8, seed: 23, mid: 1.3 },
+  ride: { dur: 0.9, f0: 240, n: 18, exp: 1.26, fall: 0.78, decay: 0.32, dark: 0.75, bright: 0.42, noise: 0.04, nDecay: 0.4, stick: 0.003, stickAmp: 0.45, hp: 450, drive: 1.08, peak: 0.8, seed: 31, mid: 0.9, bell: [[1680, 0.7, 0.28], [2480, 0.28, 0.16], [3320, 0.12, 0.1]] },
+  crash: { dur: 1.6, f0: 190, n: 20, exp: 1.28, fall: 0.7, decay: 0.62, dark: 0.68, bright: 0.48, noise: 0.07, nDecay: 0.55, stick: 0.007, stickAmp: 0.5, hp: 280, drive: 1.1, peak: 0.84, seed: 41, mid: 1.05 },
+  splash: { dur: 0.28, f0: 520, n: 14, exp: 1.22, fall: 0.65, decay: 0.1, dark: 0.62, bright: 0.55, noise: 0.08, nDecay: 0.28, stick: 0.0025, stickAmp: 0.65, hp: 1500, drive: 1.12, peak: 0.8, seed: 47, mid: 0.85 },
+  china: { dur: 0.7, f0: 200, n: 16, exp: 1.18, fall: 0.62, decay: 0.24, dark: 0.7, bright: 0.4, noise: 0.1, nDecay: 0.42, stick: 0.005, stickAmp: 0.5, hp: 380, drive: 1.2, peak: 0.82, seed: 59, mid: 1.35, trash: 0.18 },
 };
 
 function bake(ctx: AudioContext, spec: CymSpec): AudioBuffer {
@@ -66,6 +66,9 @@ function bake(ctx: AudioContext, spec: CymSpec): AudioBuffer {
     }
   }
   const m = am.length;
+  let b0 = 0;
+  let b1 = 0;
+  let b2 = 0;
   let nAmp = spec.noise;
   const nMul = Math.exp(-1 / (sr * (spec.dur * spec.nDecay)));
   const tStick = Math.floor(spec.stick * sr);
@@ -76,7 +79,11 @@ function bake(ctx: AudioContext, spec: CymSpec): AudioBuffer {
       s += am[k]! * Math.sin(ph[k]!);
       am[k]! *= mul[k]!;
     }
-    let nse = (rnd() * 2 - 1) * nAmp;
+    const white = rnd() * 2 - 1;
+    b0 = 0.99765 * b0 + white * 0.099046;
+    b1 = 0.963 * b1 + white * 0.2965164;
+    b2 = 0.57 * b2 + white * 1.052691;
+    let nse = (b0 + b1 + b2 + white * 0.1848) * nAmp * 0.35;
     nAmp *= nMul;
     if (spec.trash) nse += (rnd() * 2 - 1) * spec.trash * Math.exp(-i / (sr * 0.32));
     const stick = i < tStick ? (rnd() * 2 - 1) * spec.stickAmp * (1 - i / tStick) : 0;

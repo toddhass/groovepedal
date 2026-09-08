@@ -13,6 +13,7 @@ export function PracticeTrackPanel({ title, artist }: { title: string; artist: s
   const liveLock = useGroove((s) => s.liveLock);
   const trackVocalsOn = useGroove((s) => s.trackVocalsOn);
   const trackGuitarOn = useGroove((s) => s.trackGuitarOn);
+  const trackAiProgress = useGroove((s) => s.trackAiProgress);
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden rounded-2xl bg-card p-3 shadow-[var(--shadow-border)] sm:p-4">
@@ -52,8 +53,28 @@ export function PracticeTrackPanel({ title, artist }: { title: string; artist: s
       <p className="truncate text-sm text-foreground">{trackName ?? "No file loaded"}</p>
       {trackName ? (
         <p className="text-xs leading-relaxed text-muted-foreground">
-          {trackAi === "error" ? trackAiMessage : trackAiMessage || "Hit Start to play. Guitar off uses a quick mute."}
+          {trackAi === "ready"
+            ? "AI mix ready — turn Guitar off to drop the guitar stem."
+            : trackAi === "working"
+              ? trackAiMessage
+              : trackAi === "error"
+                ? `${trackAiMessage}. Quick mute still works.`
+                : trackAiMessage || "Hit Start to play. Tap AI split to pull guitar and vocals on the server."}
         </p>
+      ) : null}
+      {trackAi === "working" ? (
+        <div className="h-1 overflow-hidden rounded-full bg-secondary">
+          <div className="h-full bg-primary" style={{ width: `${Math.round((trackAiProgress || 0) * 100)}%` }} />
+        </div>
+      ) : null}
+      {trackName && trackAi !== "working" ? (
+        <button
+          type="button"
+          className="min-h-11 rounded-lg bg-secondary text-sm font-medium touch-manipulation"
+          onClick={() => engine().splitPracticeTrack()}
+        >
+          {trackAi === "error" ? "Retry AI split" : trackAi === "ready" ? "Split again" : "AI split"}
+        </button>
       ) : null}
       <div className="grid grid-cols-2 gap-2">
         <InstrumentToggle label="Count-in" on={countInOn} onToggle={() => engine().setCountIn(!countInOn)} />

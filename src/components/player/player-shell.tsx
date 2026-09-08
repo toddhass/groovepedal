@@ -38,7 +38,11 @@ export function PlayerShell({ initialId }: { initialId?: string }) {
   }, [initialId]);
 
   useEffect(() => {
-    engine().load(song);
+    try {
+      engine().load(song);
+    } catch {
+      // Preview iframes can reject audio setup; the UI still has to paint.
+    }
     try {
       window.localStorage.setItem(LAST_SONG_KEY, song.id);
     } catch {
@@ -88,7 +92,10 @@ export function PlayerShell({ initialId }: { initialId?: string }) {
   const status = !playing ? "Ready" : !audioReady ? "Tap for sound" : inFill ? "Fill" : "Playing";
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col gap-4 px-3 py-4 sm:gap-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div
+      className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col gap-4 px-3 py-4 sm:gap-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      style={{ backgroundColor: "#11100e", color: "#f7f4ee" }}
+    >
       <header className="flex shrink-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Logo className="size-7 text-foreground" />

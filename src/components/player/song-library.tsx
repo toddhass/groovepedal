@@ -30,7 +30,7 @@ export function SongLibrary({
   }, [query]);
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl bg-card p-3 shadow-[var(--shadow-border)] sm:p-4">
+    <section className="flex h-full min-h-64 min-w-0 flex-col overflow-hidden rounded-2xl bg-card p-3 shadow-[var(--shadow-border)] sm:p-4">
       <p className="mb-3 text-xs font-medium tracking-wide text-muted-foreground">Library</p>
       <input
         type="search"
