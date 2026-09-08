@@ -1,8 +1,11 @@
-# GroovePedal
+# GroovePedal — React player (`react-ui`)
 
-Browser drum machine for guitarists. Search a song, tap Start, play along.
+This branch is the React + TypeScript rewrite. `main` stays the proven static HTML player.
 
-Not affiliated with any hardware pedal.
+- Vite + React + TypeScript
+- Audio engine is framework-agnostic (`src/lib/audio`)
+- Zustand store for transport
+- Songs as typed JSON (`src/lib/songs/seeds.json`)
+- Client-side only — no backend, no AI stem split
 
-- Live: https://toddhass.github.io/groovepedal/
-- Also: https://groovepedal.vercel.app/
+Built output: `index.html` + `assets/`.
