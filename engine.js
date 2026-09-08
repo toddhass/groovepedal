@@ -1,75 +1,79 @@
-function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
+Function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
-function Synth(ctx,dest){
-  this.ctx=ctx;this.dest=dest;
-  var n=ctx.createBuffer(1,ctx.sampleRate*1.2,ctx.sampleRate);
-  var d=n.getChannelData(0);
-  for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-  this.noise=n;
+
+function SampleSynth(ctx, dest) {
+  this.ctx = ctx;
+  this.dest = dest;
+  this.buffers = {};
+  
+  // High quality sample URLs (Studio recorded acoustic drums and instruments)
+  this.sampleUrls = {
+    kick: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/kick.wav",
+    snare: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/snare.wav",
+    hat: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/hihat-closed.wav",
+    openHat: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/hihat-open.wav",
+    crash: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/crash.wav",
+    ride: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/ride.wav",
+    tom: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/tom-mid.wav",
+    floor: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/tom-low.wav",
+    rim: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/rimshot.wav",
+    clap: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/clap.wav",
+    bass: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/bass-e1.wav",
+    trumpet: "https://cdn.jsdelivr.net/gh/muralidesign/audio-samples@main/trumpet-c4.wav"
+  };
+
+  this.preload();
 }
-Synth.prototype.env=function(t,peak,a,dec){
-  var g=this.ctx.createGain();
-  var s=Math.max(t,this.ctx.currentTime);
-  g.gain.setValueAtTime(0.0001,s);
-  try{
-    g.gain.exponentialRampToValueAtTime(Math.max(0.0002,peak),s+0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001,s+a+dec);
-  }catch(e){
-    g.gain.linearRampToValueAtTime(peak,s+0.004);
+
+SampleSynth.prototype.preload = function() {
+  var self = this;
+  Object.keys(this.sampleUrls).forEach(function(key) {
+    fetch(self.sampleUrls[key])
+      .then(function(res) { return res.arrayBuffer(); })
+      .then(function(data) { return self.ctx.decodeAudioData(data); })
+      .then(function(decoded) { self.buffers[key] = decoded; })
+      .catch(function(err) { console.warn("Failed loading sample: " + key, err); });
+  });
+};
+
+SampleSynth.prototype.playSample = function(key, when, vol, pitchOffset) {
+  var buf = this.buffers[key];
+  if (!buf) return;
+  
+  var source = this.ctx.createBufferSource();
+  var gainNode = this.ctx.createGain();
+  
+  source.buffer = buf;
+  
+  if (pitchOffset) {
+    source.playbackRate.value = Math.pow(2, pitchOffset / 12);
   }
-  return g;
+  
+  gainNode.gain.setValueAtTime(Math.max(0.01, vol), when);
+  
+  source.connect(gainNode);
+  gainNode.connect(this.dest);
+  
+  source.start(when);
 };
-Synth.prototype.ns=function(t,dur){
-  var s=this.ctx.createBufferSource();
-  s.buffer=this.noise;s.loop=true;s.start(t);s.stop(t+dur);return s;
+
+SampleSynth.prototype.trig = function(voice, t, v) {
+  var velocity = Math.max(0.05, Math.min(1.4, v));
+  if (this.buffers[voice]) {
+    this.playSample(voice, t, velocity);
+  }
 };
-Synth.prototype.kick=function(t,v){
-  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(38,t+.1);
-  var g=this.env(t,1.45*v,.004,.36);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.4);
+
+SampleSynth.prototype.bass = function(t, v, freq) {
+  if (!freq) return;
+  var semitones = 12 * (Math.log(freq / 41.20) / Math.LN2);
+  this.playSample("bass", t, v * 0.8, semitones);
 };
-Synth.prototype.snare=function(t,v){
-  var n=this.ns(t,.22);var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=1800;
-  var g=this.env(t,.85*v,.002,.16);n.connect(bp);bp.connect(g);g.connect(this.dest);
-  var o=this.ctx.createOscillator();o.type="triangle";o.frequency.setValueAtTime(196,t);
-  var tg=this.env(t,.38*v,.002,.1);o.connect(tg);tg.connect(this.dest);o.start(t);o.stop(t+.18);
-};
-Synth.prototype.hat=function(t,v,dec){
-  var n=this.ns(t,dec+.04);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=6800;
-  var g=this.env(t,(dec>.1?.26:.22)*v,.001,dec);n.connect(hp);hp.connect(g);g.connect(this.dest);
-};
-Synth.prototype.crash=function(t,v){
-  var n=this.ns(t,.9);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=5000;
-  var g=this.env(t,.45*v,.002,.8);n.connect(hp);hp.connect(g);g.connect(this.dest);
-};
-Synth.prototype.tom=function(t,v,f){
-  var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*.6,t+.18);
-  var g=this.env(t,.7*v,.003,.2);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.25);
-};
-Synth.prototype.trig=function(voice,t,v){
-  v=Math.max(.05,Math.min(1.4,v));
-  if(voice==="kick")this.kick(t,v);
-  else if(voice==="snare"||voice==="clap")this.snare(t,v);
-  else if(voice==="rim")this.tom(t,v*.8,420);
-  else if(voice==="hat")this.hat(t,v,.05);
-  else if(voice==="openHat")this.hat(t,v,.24);
-  else if(voice==="ride")this.hat(t,v,.4);
-  else if(voice==="crash")this.crash(t,v);
-  else if(voice==="tom")this.tom(t,v,160);
-  else if(voice==="floor")this.tom(t,v,95);
-};
-Synth.prototype.bass=function(t,v,f){
-  if(!f)return;
-  var o=this.ctx.createOscillator();o.type="sawtooth";o.frequency.setValueAtTime(f,t);
-  var lp=this.ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.setValueAtTime(420,t);
-  var g=this.env(t,.42*v,.008,.28);o.connect(lp);lp.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.36);
-};
-Synth.prototype.trumpet=function(t,v,f){
-  if(!f)return;
-  var a=this.ctx.createOscillator();a.type="sawtooth";a.frequency.setValueAtTime(f,t);
-  var b=this.ctx.createOscillator();b.type="square";b.frequency.setValueAtTime(f*1.003,t);
-  var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=Math.min(2200,f*3.2);
-  var g=this.env(t,.22*v,.012,.18);a.connect(bp);b.connect(bp);bp.connect(g);g.connect(this.dest);
-  a.start(t);b.start(t);a.stop(t+.28);b.stop(t+.28);
+
+SampleSynth.prototype.trumpet = function(t, v, freq) {
+  if (!freq) return;
+  var semitones = 12 * (Math.log(freq / 261.63) / Math.LN2);
+  this.playSample("trumpet", t, v * 0.6, semitones);
 };
 
 function Engine(){
@@ -100,11 +104,16 @@ Engine.prototype.unlock=function(){
       var AC=window.AudioContext||window.webkitAudioContext;
       this.ctx=new AC();
       var drums=this.ctx.createGain();
-      var comp=this.ctx.createDynamicsCompressor();comp.threshold.value=-12;comp.ratio.value=2.5;
-      var makeup=this.ctx.createGain();makeup.gain.value=1.8;
+      var comp=this.ctx.createDynamicsCompressor();
+      comp.threshold.value=-16;
+      comp.knee.value=10;
+      comp.ratio.value=3.5;
+      comp.attack.value=0.005;
+      comp.release.value=0.1;
+      var makeup=this.ctx.createGain();makeup.gain.value=1.4;
       this.master=this.ctx.createGain();
       drums.connect(comp);comp.connect(makeup);makeup.connect(this.master);this.master.connect(this.ctx.destination);
-      this.synth=new Synth(this.ctx,drums);
+      this.synth=new SampleSynth(this.ctx,drums);
       this.apply();
       var self=this;
       this.ctx.addEventListener("statechange",function(){
