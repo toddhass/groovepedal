@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-contrast -->
+  <!-- pages-redeploy 2026-09-08-ram -->
   <style>
     :root {
       --bg:#11100e; --fg:#f7f4ee; --muted:#cfc9bc; --card:#1f1c18; --secondary:#2d2a24;
@@ -300,11 +300,19 @@ function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
 function Synth(ctx,dest){
   this.ctx=ctx;this.dest=dest;
-  var n=ctx.createBuffer(1,ctx.sampleRate*1.2,ctx.sampleRate);
+  var n=ctx.createBuffer(1,Math.max(2048, Math.floor(ctx.sampleRate*0.22)),ctx.sampleRate);
   var d=n.getChannelData(0);
   for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   this.noise=n;
 }
+Synth.prototype.reap=function(lead, extras){
+  if(!lead) return;
+  lead.onended=function(){
+    try{ lead.disconnect(); }catch(e){}
+    if(!extras) return;
+    for(var i=0;i<extras.length;i++) try{ extras[i].disconnect(); }catch(e){}
+  };
+};
 Synth.prototype.env=function(t,peak,a,dec){
   var g=this.ctx.createGain();
   var s=Math.max(t,this.ctx.currentTime);
@@ -324,16 +332,19 @@ Synth.prototype.ns=function(t,dur){
 Synth.prototype.kick=function(t,v){
   var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(38,t+.1);
   var g=this.env(t,1.45*v,.004,.36);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.4);
+  this.reap(o,[g]);
 };
 Synth.prototype.snare=function(t,v){
   var n=this.ns(t,.22);var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=1800;
   var g=this.env(t,.85*v,.002,.16);n.connect(bp);bp.connect(g);g.connect(this.dest);
   var o=this.ctx.createOscillator();o.type="triangle";o.frequency.setValueAtTime(196,t);
   var tg=this.env(t,.38*v,.002,.1);o.connect(tg);tg.connect(this.dest);o.start(t);o.stop(t+.18);
+  this.reap(n,[bp,g,o,tg]);
 };
 Synth.prototype.hat=function(t,v,dec){
   var n=this.ns(t,dec+.04);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=6800;
   var g=this.env(t,(dec>.1?.26:.22)*v,.001,dec);n.connect(hp);hp.connect(g);g.connect(this.dest);
+  this.reap(n,[hp,g]);
 };
 Synth.prototype.crash=function(t,v){ this.cymbal(t,v,900,3400,1.05,.42,false); };
 Synth.prototype.cymbal=function(t,v,hpF,bpF,dec,peak,trash){
@@ -346,11 +357,13 @@ Synth.prototype.cymbal=function(t,v,hpF,bpF,dec,peak,trash){
   var mg=this.env(t,(trash?.09:.05)*v,.001,dec*.7);
   a.connect(mhp); b.connect(mhp); mhp.connect(mg); mg.connect(this.dest);
   a.start(t); b.start(t); a.stop(t+dec); b.stop(t+dec);
+  this.reap(n,[hp,bp,g,a,b,mhp,mg]);
 };
 Synth.prototype.tom=function(t,v,f,dec){
   dec=dec||.22;
   var o=this.ctx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*.55,t+dec*.7);
   var g=this.env(t,.78*v,.003,dec); o.connect(g); g.connect(this.dest); o.start(t); o.stop(t+dec+.08);
+  this.reap(o,[g]);
 };
 Synth.prototype.cowbell=function(t,v){
   var a=this.ctx.createOscillator();a.type="square";a.frequency.setValueAtTime(845,t);
@@ -360,6 +373,7 @@ Synth.prototype.cowbell=function(t,v){
   var g=this.env(t,.42*v,.001,.2);
   a.connect(bp);b.connect(bp);bp.connect(hp);hp.connect(g);g.connect(this.dest);
   a.start(t);b.start(t);a.stop(t+.26);b.stop(t+.26);
+  this.reap(a,[b,bp,hp,g]);
 };
 Synth.prototype.trig=function(voice,t,v){
   v=Math.max(.05,Math.min(1.4,v));
@@ -384,6 +398,7 @@ Synth.prototype.bass=function(t,v,f){
   var o=this.ctx.createOscillator();o.type="sawtooth";o.frequency.setValueAtTime(f,t);
   var lp=this.ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.setValueAtTime(420,t);
   var g=this.env(t,.42*v,.008,.28);o.connect(lp);lp.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.36);
+  this.reap(o,[lp,g]);
 };
 Synth.prototype.trumpet=function(t,v,f){
   if(!f)return;
@@ -392,20 +407,25 @@ Synth.prototype.trumpet=function(t,v,f){
   var bp=this.ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=Math.min(2200,f*3.2);
   var g=this.env(t,.22*v,.012,.18);a.connect(bp);b.connect(bp);bp.connect(g);g.connect(this.dest);
   a.start(t);b.start(t);a.stop(t+.28);b.stop(t+.28);
+  this.reap(a,[b,bp,g]);
 };
 Synth.prototype.tone=function(t,peak,f,type,ft,ff,atk,dec,dur,extra){
   var o=this.ctx.createOscillator();o.type=type;o.frequency.setValueAtTime(f,t);
   var fl=this.ctx.createBiquadFilter();fl.type=ft;fl.frequency.value=ff;fl.Q.value=ft==="bandpass"?1.2:.7;
   var g=this.env(t,peak,atk,dec);o.connect(fl);fl.connect(g);g.connect(this.dest);o.start(t);o.stop(t+dur);
+  var extras=[fl,g];
   if(extra){
     var h=this.ctx.createOscillator();h.type=extra;h.frequency.setValueAtTime(f*2,t);
     var hg=this.env(t,peak*.28,atk,dec);h.connect(hg);hg.connect(this.dest);h.start(t);h.stop(t+dur);
+    extras.push(h,hg);
   }
+  this.reap(o,extras);
 };
 Synth.prototype.boom=function(t,v,f){
   var o=this.ctx.createOscillator();o.type="sine";o.frequency.setValueAtTime(f*1.6,t);
   o.frequency.exponentialRampToValueAtTime(Math.max(38,f*.7),t+.28);
   var g=this.env(t,.55*v,.006,.5);o.connect(g);g.connect(this.dest);o.start(t);o.stop(t+.55);
+  this.reap(o,[g]);
 };
 Synth.prototype.play=function(kind,t,v,f){
   if(!f)return;
@@ -468,7 +488,7 @@ var ENSEMBLES=[
 
 function analyzeTrack(buf, hint){
   var sr=buf.sampleRate, hop=Math.max(64, Math.round(sr/200));
-  var n=Math.min(buf.length, Math.floor(sr*24));
+  var n=Math.min(buf.length, Math.floor(sr*12));
   var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
   var full=[], bass=[], i, j, s, acc, bacc, lp=0;
   var rc=1/(2*Math.PI*110), a=(1/sr)/(rc+1/sr);
@@ -642,12 +662,16 @@ PracticeTrack.prototype.load=function(file, hint, onReady){
     return;
   }
   function takeBuf(buf){
-    var max=Math.min(buf.length, Math.floor(buf.sampleRate*180));
-    var stereo=self.ctx.createBuffer(2, max, buf.sampleRate);
-    var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-    stereo.getChannelData(0).set(L.subarray(0,max));
-    stereo.getChannelData(1).set(R.subarray(0,max));
-    self.buffer=stereo;
+    var max=Math.min(buf.length, Math.floor(buf.sampleRate*90));
+    if(buf.numberOfChannels>=2 && buf.length<=max){
+      self.buffer=buf;
+    } else {
+      var stereo=self.ctx.createBuffer(2, max, buf.sampleRate);
+      var L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L;
+      stereo.getChannelData(0).set(L.subarray(0,max));
+      stereo.getChannelData(1).set(R.subarray(0,max));
+      self.buffer=stereo;
+    }
     var a=analyzeTrack(self.buffer, hint||120);
     self.nativeBpm=a.bpm; self.cue=a.offset;
     self.apply();
@@ -928,8 +952,12 @@ Engine.prototype.unlock=function(){
       this.htmlAudio.loop=true;this.htmlAudio.setAttribute("playsinline","");this.htmlAudio.volume=.01;
     }
     this.htmlAudio.play().catch(function(){});
-    var o=this.ctx.createOscillator();var g=this.ctx.createGain();g.gain.value=.03;o.frequency.value=72;
-    o.connect(g);g.connect(this.master);o.start();o.stop(this.ctx.currentTime+.05);
+    if(!this._primed){
+      var o=this.ctx.createOscillator();var g=this.ctx.createGain();g.gain.value=.03;o.frequency.value=72;
+      o.connect(g);g.connect(this.master);o.start();o.stop(this.ctx.currentTime+.05);
+      o.onended=function(){ try{ o.disconnect(); g.disconnect(); }catch(e){} };
+      this._primed=true;
+    }
   }catch(e){}
 };
 Engine.prototype.apply=function(){
@@ -1052,7 +1080,7 @@ Engine.prototype.loadTrack=function(file){
     this.track=new PracticeTrack(this.ctx,this.master);
     if(this.live) this.track.lockTap.connect(this.live.input);
   }
-  this.practiceFile=file;
+  this.practiceFile=null;
   var self=this;
   if(this.track)this.track.load(file, this.song&&this.song.bpm||this.bpm, function(a){
     if(a&&a.error){
@@ -1099,38 +1127,10 @@ Engine.prototype.setLiveLock=function(on){
   }
   this.emit();
 };
-Engine.prototype.startSplit=function(file){
-  var self=this, token=++this.splitToken;
-  this.trackAi="working"; this.trackAiProgress=0.02; this.trackAiMessage="Preparing AI split…"; this.emit();
-  var reader=new FileReader();
-  reader.onerror=function(){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="Could not read file"; self.emit(); };
-  reader.onload=function(){
-    if(token!==self.splitToken)return;
-    self.ctx.decodeAudioData(reader.result.slice(0), function(buf){
-      if(token!==self.splitToken)return;
-      var max=Math.min(buf.length, Math.ceil(90*buf.sampleRate));
-      var offline=new OfflineAudioContext(2, Math.ceil(Math.min(buf.duration,90)*44100), 44100);
-      var src=offline.createBufferSource(); src.buffer=buf; src.connect(offline.destination); src.start(0);
-      offline.startRendering().then(function(rendered){
-        if(token!==self.splitToken)return;
-        var left=rendered.getChannelData(0).slice(), right=rendered.getChannelData(1).slice();
-        var blob=new Blob([DEMUCS_WORKER_SRC],{type:"text/javascript"});
-        var worker;
-        try{ worker=new Worker(URL.createObjectURL(blob)); }
-        catch(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="AI worker unavailable"; self.emit(); return; }
-        worker.onmessage=function(ev){
-          if(token!==self.splitToken){ worker.terminate(); return; }
-          var msg=ev.data;
-          if(msg.type==="progress"){ self.trackAi="working"; self.trackAiProgress=msg.ratio; self.trackAiMessage=msg.message; self.emit(); }
-          else if(msg.type==="done"){ worker.terminate(); self.track.setStems(msg.stems); self.trackAi="ready"; self.trackAiProgress=1; self.trackAiMessage="AI mix ready — guitar is its own stem"; self.emit(); }
-          else if(msg.type==="error"){ worker.terminate(); self.trackAi="error"; self.trackAiMessage=msg.message||"AI split failed"; self.emit(); }
-        };
-        worker.onerror=function(e){ try{e.preventDefault();}catch(x){} worker.terminate(); if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=e.message||"AI worker failed"; self.emit(); };
-        worker.postMessage({type:"separate",left:left,right:right},[left.buffer,right.buffer]);
-      }).catch(function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage=String(err); self.emit(); });
-    }, function(err){ if(token!==self.splitToken)return; self.trackAi="error"; self.trackAiMessage="Could not decode audio"; self.emit(); });
-  };
-  reader.readAsArrayBuffer(file);
+Engine.prototype.startSplit=function(){
+  this.trackAi="error";
+  this.trackAiMessage="AI split is off — it used too much RAM. Turn Guitar off for a quick mute.";
+  this.emit();
 };
 Engine.prototype.begin=function(){
   if(!this.playing||!this.ctx||this.clock)return;
@@ -1198,7 +1198,7 @@ Engine.prototype.sched=function(){
   }
   var guard=0;
   try{
-  while(this.nextT<this.ctx.currentTime+.25 && guard<48){
+  while(this.nextT<this.ctx.currentTime+.12 && guard<8){
     if(!isFinite(this.nextT)) break;
     this.schedStep(this.nextT);this.advance();
     guard++;
