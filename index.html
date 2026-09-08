@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-ui -->
+  <!-- pages-redeploy 2026-09-08-win-freeze -->
   <style>
     :root {
       --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --secondary:#23211d;
@@ -856,8 +856,16 @@ function Engine(){
   this.trackAi="off";this.trackAiProgress=0;this.trackAiMessage="";this.splitToken=0;this.practiceFile=null;
   this.origin=0;this.clockStep=0;this.live=null;this.liveLockOn=false;this.countInOn=false;this.hold=null;this.arming=false;
 }
-Engine.prototype.sub=function(fn){this.listeners.push(fn);fn(this.state());};
-Engine.prototype.emit=function(){var s=this.state();this.listeners.forEach(function(fn){fn(s);});};
+Engine.prototype.sub=function(fn){this.listeners.push(fn);};
+Engine.prototype.emit=function(){
+  if(this._raf) return;
+  var self=this;
+  this._raf=requestAnimationFrame(function(){
+    self._raf=0;
+    var s=self.state();
+    for(var i=0;i<self.listeners.length;i++) self.listeners[i](s);
+  });
+};
 Engine.prototype.state=function(){
   var p=this.song&&this.song.parts[this.partIndex];
   return {
@@ -1172,7 +1180,16 @@ Engine.prototype.reattach=function(){
   this.track.play(when, Math.max(0, when-this.origin));
 };
 Engine.prototype.sched=function(){
-  if(!this.playing||!this.ctx||this.ctx.state!=="running"){if(this.playing)this.unlock();return;}
+  if(!this.playing||!this.ctx||this.ctx.state!=="running"){
+    if(this.playing && this.ctx && this.ctx.state!=="running"){
+      var now=Date.now();
+      if(!this._resumeAt || now-this._resumeAt>1000){
+        this._resumeAt=now;
+        try{ this.ctx.resume(); }catch(e){}
+      }
+    }
+    return;
+  }
   if(this.live&&this.liveLockOn&&this.track&&(this.track.buffer||this.track.media)){
     if(this.track.setAlign) this.track.setAlign(0);
     if(this.drumAlign) this.drumAlign.delayTime.setTargetAtTime(0, this.ctx.currentTime, .04);
@@ -1185,6 +1202,7 @@ Engine.prototype.sched=function(){
     guard++;
   }
   }catch(e){}
+  this.emit();
 };
 Engine.prototype.schedStep=function(when){
   var part=this.song.parts[this.partIndex]; if(!part||!this.synth)return;
@@ -1219,7 +1237,6 @@ Engine.prototype.schedStep=function(when){
     }
   }
   this.vis={step:st,partIndex:this.partIndex,inFill:this.inFill};
-  this.emit();
 };
 Engine.prototype.advance=function(){
   var part=this.song.parts[this.partIndex];
@@ -1257,28 +1274,47 @@ function pick(id){
 }
 function paint(st){
   st=st||engine.state();
-  $("song").textContent=song.title;
-  $("artist").textContent=song.artist;
-  $("groove").textContent=LABELS[st.feel]||st.feel||song.feel;
-  $("part").textContent=st.partName;
-  $("tempo").textContent=(Math.round(st.bpm*10)/10)+" BPM";
-  $("status").textContent=!st.playing?"Ready":!st.ready?"Tap for sound":st.inFill?"Fill":"Playing";
-  $("status").classList.toggle("on", !!(st.playing && st.ready));
-  $("start").textContent=st.playing&&st.ready?"Stop":st.playing?"Tap for sound":"Start";
-  $("start").classList.toggle("stop", !!st.playing);
-  $("bpm").value=Math.round(st.bpm); $("bpmv").textContent=Math.round(st.bpm*10)/10;
-  $("bpm").style.setProperty("--pct",((st.bpm-40)/200*100)+"%");
   var cur=st.playing?st.step%16:-1;
-  var html="", b, s, idx, on;
-  for(b=0;b<4;b++){
-    html+='\x3cdiv class="beat"\x3e';
-    for(s=0;s<4;s++){
-      idx=b*4+s; on=idx===cur;
-      html+='\x3cspan class="step'+(on?(st.inFill?" fill":" on"):"")+'"\x3e\x3c/span\x3e';
+  var clockKey=cur+"|"+(st.inFill?1:0)+"|"+(st.playing?1:0)+"|"+(st.ready?1:0)+"|"+st.partName+"|"+Math.round(st.bpm*10);
+  if(clockKey!==paint._clock){
+    paint._clock=clockKey;
+    var host=$("dots");
+    if(host.childElementCount!==4){
+      host.textContent="";
+      for(var b=0;b<4;b++){
+        var beat=document.createElement("div"); beat.className="beat";
+        for(var s=0;s<4;s++){ var sp=document.createElement("span"); sp.className="step"; beat.appendChild(sp); }
+        host.appendChild(beat);
+      }
     }
-    html+='\x3c/div\x3e';
+    var steps=host.querySelectorAll(".step");
+    for(var i=0;i<steps.length;i++){
+      var on=i===cur;
+      var cls=on?(st.inFill?"step fill":"step on"):"step";
+      if(steps[i].className!==cls) steps[i].className=cls;
+    }
+    $("song").textContent=song.title;
+    $("artist").textContent=song.artist;
+    $("groove").textContent=LABELS[st.feel]||st.feel||song.feel;
+    $("part").textContent=st.partName;
+    $("tempo").textContent=String(Math.round(st.bpm*10)/10);
+    $("status").textContent=!st.playing?"Ready":!st.ready?"Tap for sound":st.inFill?"Fill":"Playing";
+    $("status").classList.toggle("on", !!(st.playing && st.ready));
+    $("start").textContent=st.playing&&st.ready?"Stop":st.playing?"Tap for sound":"Start";
+    $("start").classList.toggle("stop", !!st.playing);
+    if(!paint._bpmDown){
+      var rounded=Math.round(st.bpm);
+      if(paint._bpmShown!==rounded){
+        paint._bpmShown=rounded;
+        $("bpm").value=rounded;
+        $("bpmv").textContent=String(Math.round(st.bpm*10)/10);
+        $("bpm").style.setProperty("--pct",((st.bpm-40)/200*100)+"%");
+      }
+    }
   }
-  $("dots").innerHTML=html;
+  var panelKey=[st.feel,st.ensemble,st.cowbellOn,st.trackName,st.liveLock,st.liveLockOn,st.countInOn,st.trackVocalsOn,st.trackGuitarOn,st.trackAi,Math.round((st.trackAiProgress||0)*20),st.trackAiMessage,JSON.stringify(st.enabled)].join("|");
+  if(panelKey===paint._panel) return;
+  paint._panel=panelKey;
   $("styles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.feel===st.feel);});
   $("ensembles").querySelectorAll(".band-row").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
@@ -1293,7 +1329,7 @@ function paint(st){
   $("trackvocals").classList.toggle("on",!!st.trackName&&!!st.trackVocalsOn);
   $("trackguitar").classList.toggle("on",!!st.trackName&&!!st.trackGuitarOn);
   $("nudgewrap").hidden=!st.trackName;
-  $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":(st.trackAiMessage||"Hit START to play. Guitar off uses a quick mute until you AI-split.")):"";
+  $("trackai").textContent=st.trackName?(st.trackAi==="ready"?"AI mix ready — tap Guitar off":st.trackAi==="working"?st.trackAiMessage:st.trackAi==="error"?st.trackAiMessage+". Quick mute still works.":(st.trackAiMessage||"Hit Start to play. Guitar off uses a quick mute until you AI-split.")):"";
   $("aibarwrap").hidden=!(st.trackName&&st.trackAi==="working");
   $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
   $("retryai").hidden=!(st.trackName&&st.trackAi!=="working"&&st.trackAi!=="ready");
@@ -1421,7 +1457,9 @@ document.querySelectorAll("#tabs [data-tab]").forEach(function(btn){
     document.querySelectorAll("#tabs [data-tab]").forEach(function(b){ b.classList.toggle("on", b===btn); });
   });
 });
-$("bpm").addEventListener("pointerdown",function(){engine.unlock();});
+$("bpm").addEventListener("pointerdown",function(){paint._bpmDown=true;engine.unlock();});
+$("bpm").addEventListener("pointerup",function(){paint._bpmDown=false;});
+$("bpm").addEventListener("pointercancel",function(){paint._bpmDown=false;});
 $("bpm").addEventListener("input",function(e){engine.setBpm(+e.target.value);});
 $("vol").addEventListener("pointerdown",function(){engine.unlock();});
 $("vol").addEventListener("input",function(e){
