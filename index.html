@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-all-voices -->
+  <!-- pages-redeploy 2026-09-08-zildjian -->
   <style>
     :root {
       --bg:#11100e; --fg:#f7f4ee; --muted:#cfc9bc; --card:#1f1c18; --secondary:#2d2a24;
@@ -298,12 +298,62 @@ function makeSong(m){
 
 function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
+function bakeCym(ctx, spec){
+  var sr=ctx.sampleRate, N=Math.max(256, Math.floor(sr*spec.dur));
+  var buf=ctx.createBuffer(1,N,sr), d=buf.getChannelData(0);
+  var modes=[], n, f, a, dec, i, t, s, m, env, stick, nse, y, x1, rc, hpA, peak, g;
+  var seed=spec.seed||1;
+  function rnd(){ seed=(seed*1664525+1013904223)|0; return (seed>>>0)/4294967296; }
+  for(n=1;n<=spec.n;n++){
+    f=spec.f0*Math.pow(n, spec.exp)*(1+0.016*Math.sin(n*2.63+spec.seed));
+    if(f>16500) continue;
+    a=(1/Math.pow(n, spec.fall))*(f>5500?spec.bright:1);
+    if(spec.mid && f>900 && f<2800) a*=spec.mid;
+    dec=spec.decay*(spec.dark+(1-spec.dark)*Math.max(0.18, 1-f/11000));
+    modes.push(f, a, dec);
+  }
+  if(spec.bell){
+    for(i=0;i<spec.bell.length;i++) modes.push(spec.bell[i][0], spec.bell[i][1], spec.bell[i][2]);
+  }
+  var M=modes.length/3, twoPi=Math.PI*2;
+  for(i=0;i<N;i++){
+    t=i/sr; s=0;
+    for(m=0;m<M;m++){
+      env=Math.exp(-t/modes[m*3+2]);
+      s+=modes[m*3+1]*env*Math.sin(twoPi*modes[m*3]*t);
+    }
+    nse=(rnd()*2-1)*spec.noise*Math.exp(-t/(spec.dur*spec.nDecay));
+    if(spec.trash) nse+=(rnd()*2-1)*spec.trash*Math.exp(-t*3.2)*Math.sin(twoPi*1400*t+rnd());
+    stick=t<spec.stick? (rnd()*2-1)*spec.stickAmp*(1-t/spec.stick):0;
+    d[i]=Math.tanh((s+nse+stick)*spec.drive);
+  }
+  rc=1/(2*Math.PI*spec.hp); hpA=rc/(rc+1/sr); y=0; x1=0; peak=0;
+  for(i=0;i<N;i++){
+    y=hpA*(y+d[i]-x1); x1=d[i]; d[i]=y;
+    a=y<0?-y:y; if(a>peak) peak=a;
+  }
+  g=peak>1e-6?spec.peak/peak:1;
+  for(i=0;i<N;i++) d[i]*=g;
+  return buf;
+}
+function bakeKitCymbals(ctx){
+  return {
+    closed: bakeCym(ctx,{dur:.11,f0:620,n:14,exp:1.22,fall:.48,decay:.055,dark:.35,bright:1.7,noise:.22,nDecay:.28,stick:.003,stickAmp:1.1,hp:2400,drive:1.6,peak:.9,seed:11,mid:0.7}),
+    open: bakeCym(ctx,{dur:.42,f0:480,n:18,exp:1.28,fall:.5,decay:.16,dark:.4,bright:1.45,noise:.18,nDecay:.4,stick:.004,stickAmp:.9,hp:1800,drive:1.45,peak:.88,seed:17,mid:.85}),
+    chick: bakeCym(ctx,{dur:.07,f0:540,n:10,exp:1.18,fall:.55,decay:.028,dark:.5,bright:1.1,noise:.16,nDecay:.22,stick:.0025,stickAmp:1.3,hp:900,drive:1.7,peak:.85,seed:23,mid:1.2}),
+    ride: bakeCym(ctx,{dur:1.15,f0:290,n:20,exp:1.33,fall:.62,decay:.28,dark:.55,bright:1.15,noise:.08,nDecay:.35,stick:.0035,stickAmp:.7,hp:600,drive:1.25,peak:.86,seed:31,mid:.7,bell:[[2280,.9,.22],[3410,.45,.14],[4860,.22,.1],[6120,.12,.08]]}),
+    crash: bakeCym(ctx,{dur:2.15,f0:265,n:28,exp:1.36,fall:.46,decay:.62,dark:.42,bright:1.55,noise:.14,nDecay:.5,stick:.006,stickAmp:.85,hp:380,drive:1.35,peak:.92,seed:41,mid:.9}),
+    splash: bakeCym(ctx,{dur:.28,f0:720,n:16,exp:1.3,fall:.42,decay:.08,dark:.3,bright:1.8,noise:.16,nDecay:.3,stick:.003,stickAmp:1,hp:2200,drive:1.5,peak:.88,seed:47,mid:.6}),
+    china: bakeCym(ctx,{dur:.85,f0:240,n:18,exp:1.24,fall:.4,decay:.22,dark:.48,bright:1.05,noise:.2,nDecay:.4,stick:.005,stickAmp:.8,hp:500,drive:1.7,peak:.9,seed:59,mid:1.45,trash:.35})
+  };
+}
 function Synth(ctx,dest){
   this.ctx=ctx;this.dest=dest;
   var n=ctx.createBuffer(1,Math.max(2048, Math.floor(ctx.sampleRate*1.05)),ctx.sampleRate);
   var d=n.getChannelData(0);
   for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   this.noise=n;
+  this.cym=bakeKitCymbals(ctx);
 }
 Synth.prototype.reap=function(lead, extras){
   if(!lead) return;
@@ -335,21 +385,27 @@ Synth.prototype.ns=function(t,dur){
   var off=Math.random()*Math.max(0.001, s.loop?len*0.85:Math.max(0.001,len-dur));
   s.start(t, off); s.stop(t+dur); return s;
 };
-Synth.prototype.spray=function(t,dec,freqs){
-  var mix=this.ctx.createGain();
-  var nodes=[], i, o, g;
-  for(i=0;i<freqs.length;i++){
-    o=this.ctx.createOscillator();
-    o.type=i%2?"square":"triangle";
-    o.frequency.setValueAtTime(freqs[i],t);
-    g=this.ctx.createGain(); g.gain.value=1/freqs.length;
-    o.connect(g); g.connect(mix);
-    o.start(t); o.stop(t+dec+.06);
-    nodes.push(o,g);
-  }
-  nodes.push(mix);
-  return {mix:mix, nodes:nodes};
+Synth.prototype.hitBuf=function(buf,t,v,gain,jit){
+  if(!buf) return;
+  var s=this.ctx.createBufferSource();
+  s.buffer=buf;
+  if(jit) s.playbackRate.value=1+(Math.random()*2-1)*jit;
+  var g=this.ctx.createGain();
+  g.gain.setValueAtTime(Math.max(.05,Math.min(1.35,v))*gain, Math.max(t,this.ctx.currentTime));
+  s.connect(g); g.connect(this.dest);
+  var dur=buf.duration/Math.max(.5,s.playbackRate.value);
+  s.start(t); s.stop(t+dur+.02);
+  this.reap(s,[g]);
 };
+Synth.prototype.hat=function(t,v,dec){
+  if(dec>0.12) this.hitBuf(this.cym.open,t,v,.7,.008);
+  else this.hitBuf(this.cym.closed,t,v,.55,.004);
+};
+Synth.prototype.chick=function(t,v){ this.hitBuf(this.cym.chick,t,v,.62,.003); };
+Synth.prototype.ride=function(t,v){ this.hitBuf(this.cym.ride,t,v,.72,.004); };
+Synth.prototype.crash=function(t,v){ this.hitBuf(this.cym.crash,t,v,.9,.006); };
+Synth.prototype.splash=function(t,v){ this.hitBuf(this.cym.splash,t,v,.7,.01); };
+Synth.prototype.china=function(t,v){ this.hitBuf(this.cym.china,t,v,.78,.01); };
 Synth.prototype.kick=function(t,v){
   var body=this.ctx.createOscillator(); body.type="sine";
   body.frequency.setValueAtTime(58,t); body.frequency.exponentialRampToValueAtTime(47,t+.22);
@@ -390,88 +446,6 @@ Synth.prototype.rim=function(t,v){
   var n=this.ns(t,.018); var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=900; bp.Q.value=2.2;
   var ng=this.env(t,.32*v,.001,.02); n.connect(bp); bp.connect(ng); ng.connect(this.dest);
   this.reap(o,[g,n,bp,ng]);
-};
-Synth.prototype.hat=function(t,v,dec){
-  var open=dec>0.12;
-  var spray=this.spray(t, dec+.04, open?[265,327,412,523,678]:[327,412,523,678]);
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=open?7200:8800;
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=open?7800:9800; bp.Q.value=0.85;
-  spray.mix.connect(hp); hp.connect(bp);
-  var g=this.env(t,(open?.2:.16)*v,.0012,dec);
-  bp.connect(g); g.connect(this.dest);
-  var n=this.ns(t,dec+.03);
-  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=open?6500:9000;
-  var ng=this.env(t,(open?.1:.07)*v,.001,dec);
-  n.connect(nhp); nhp.connect(ng); ng.connect(this.dest);
-  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,bp,g,n,nhp,ng]));
-};
-Synth.prototype.chick=function(t,v){
-  var n=this.ns(t,.04);
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=3200; bp.Q.value=1.4;
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=900;
-  var g=this.env(t,.28*v,.001,.035);
-  n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.dest);
-  this.reap(n,[hp,bp,g]);
-};
-Synth.prototype.ride=function(t,v){
-  var bell=this.ctx.createOscillator(); bell.type="triangle"; bell.frequency.setValueAtTime(2350,t);
-  var over=this.ctx.createOscillator(); over.type="sine"; over.frequency.setValueAtTime(3520,t);
-  var bg=this.env(t,.22*v,.001,.32); var og=this.env(t,.08*v,.001,.18);
-  bell.connect(bg); over.connect(og); bg.connect(this.dest); og.connect(this.dest);
-  bell.start(t); over.start(t); bell.stop(t+.4); over.stop(t+.26);
-  var n=this.ns(t,.48);
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7800;
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=9000; bp.Q.value=0.9;
-  var ng=this.env(t,.12*v,.002,.42);
-  n.connect(hp); hp.connect(bp); bp.connect(ng); ng.connect(this.dest);
-  this.reap(bell,[over,bg,og,n,hp,bp,ng]);
-};
-Synth.prototype.crash=function(t,v){
-  var dec=1.7;
-  var spray=this.spray(t, dec, [283,349,417,521,659]);
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=3800;
-  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass";
-  lp.frequency.setValueAtTime(11000,t);
-  try{ lp.frequency.exponentialRampToValueAtTime(2200,t+1.35); }catch(e){}
-  spray.mix.connect(hp); hp.connect(lp);
-  var g=this.env(t,.24*v,.003,dec);
-  lp.connect(g); g.connect(this.dest);
-  var n=this.ns(t,dec);
-  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=3200;
-  var nlp=this.ctx.createBiquadFilter(); nlp.type="lowpass";
-  nlp.frequency.setValueAtTime(10000,t);
-  try{ nlp.frequency.exponentialRampToValueAtTime(2400,t+1.4); }catch(e){}
-  var ng=this.env(t,.2*v,.004,dec);
-  n.connect(nhp); nhp.connect(nlp); nlp.connect(ng); ng.connect(this.dest);
-  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,lp,g,n,nhp,nlp,ng]));
-};
-Synth.prototype.splash=function(t,v){
-  var dec=.2;
-  var spray=this.spray(t, dec+.05, [410,523,678,890]);
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=6200;
-  spray.mix.connect(hp);
-  var g=this.env(t,.22*v,.001,dec);
-  hp.connect(g); g.connect(this.dest);
-  var n=this.ns(t,dec+.04);
-  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=7000;
-  var ng=this.env(t,.14*v,.001,dec);
-  n.connect(nhp); nhp.connect(ng); ng.connect(this.dest);
-  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,g,n,nhp,ng]));
-};
-Synth.prototype.china=function(t,v){
-  var dec=.52;
-  var spray=this.spray(t, dec, [233,311,394,466]);
-  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1600;
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=2600; bp.Q.value=0.55;
-  spray.mix.connect(hp); hp.connect(bp);
-  var g=this.env(t,.26*v,.002,dec);
-  bp.connect(g); g.connect(this.dest);
-  var n=this.ns(t,dec);
-  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=1400;
-  var nbp=this.ctx.createBiquadFilter(); nbp.type="bandpass"; nbp.frequency.value=2400; nbp.Q.value=0.6;
-  var ng=this.env(t,.18*v,.002,dec);
-  n.connect(nhp); nhp.connect(nbp); nbp.connect(ng); ng.connect(this.dest);
-  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,bp,g,n,nhp,nbp,ng]));
 };
 Synth.prototype.tom=function(t,v,f,dec){
   dec=dec||.24;
