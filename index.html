@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-zildjian -->
+  <!-- pages-redeploy 2026-09-08-win-bake -->
   <style>
     :root {
       --bg:#11100e; --fg:#f7f4ee; --muted:#cfc9bc; --card:#1f1c18; --secondary:#2d2a24;
@@ -299,32 +299,42 @@ function makeSong(m){
 function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
 function bakeCym(ctx, spec){
-  var sr=ctx.sampleRate, N=Math.max(256, Math.floor(sr*spec.dur));
+  var sr=22050, N=Math.max(256, Math.floor(sr*spec.dur));
   var buf=ctx.createBuffer(1,N,sr), d=buf.getChannelData(0);
-  var modes=[], n, f, a, dec, i, t, s, m, env, stick, nse, y, x1, rc, hpA, peak, g;
+  var n, f, i, m, s, stick, nse, y, x1, rc, hpA, peak, g, a, M;
   var seed=spec.seed||1;
   function rnd(){ seed=(seed*1664525+1013904223)|0; return (seed>>>0)/4294967296; }
+  var fr=[], am=[], inc=[], ph=[], mul=[];
   for(n=1;n<=spec.n;n++){
     f=spec.f0*Math.pow(n, spec.exp)*(1+0.016*Math.sin(n*2.63+spec.seed));
-    if(f>16500) continue;
+    if(f>14000) continue;
     a=(1/Math.pow(n, spec.fall))*(f>5500?spec.bright:1);
     if(spec.mid && f>900 && f<2800) a*=spec.mid;
-    dec=spec.decay*(spec.dark+(1-spec.dark)*Math.max(0.18, 1-f/11000));
-    modes.push(f, a, dec);
+    fr.push(f); am.push(a);
+    inc.push(Math.PI*2*f/sr);
+    ph.push(0);
+    mul.push(Math.exp(-1/(sr*(spec.decay*(spec.dark+(1-spec.dark)*Math.max(0.18, 1-f/11000))))));
   }
   if(spec.bell){
-    for(i=0;i<spec.bell.length;i++) modes.push(spec.bell[i][0], spec.bell[i][1], spec.bell[i][2]);
-  }
-  var M=modes.length/3, twoPi=Math.PI*2;
-  for(i=0;i<N;i++){
-    t=i/sr; s=0;
-    for(m=0;m<M;m++){
-      env=Math.exp(-t/modes[m*3+2]);
-      s+=modes[m*3+1]*env*Math.sin(twoPi*modes[m*3]*t);
+    for(i=0;i<spec.bell.length;i++){
+      f=spec.bell[i][0]; a=spec.bell[i][1];
+      fr.push(f); am.push(a); inc.push(Math.PI*2*f/sr); ph.push(0);
+      mul.push(Math.exp(-1/(sr*spec.bell[i][2])));
     }
-    nse=(rnd()*2-1)*spec.noise*Math.exp(-t/(spec.dur*spec.nDecay));
-    if(spec.trash) nse+=(rnd()*2-1)*spec.trash*Math.exp(-t*3.2)*Math.sin(twoPi*1400*t+rnd());
-    stick=t<spec.stick? (rnd()*2-1)*spec.stickAmp*(1-t/spec.stick):0;
+  }
+  M=am.length;
+  var nMul=Math.exp(-1/(sr*(spec.dur*spec.nDecay)));
+  var nAmp=spec.noise, tStick=Math.floor(spec.stick*sr);
+  for(i=0;i<N;i++){
+    s=0;
+    for(m=0;m<M;m++){
+      ph[m]+=inc[m];
+      s+=am[m]*Math.sin(ph[m]);
+      am[m]*=mul[m];
+    }
+    nse=(rnd()*2-1)*nAmp; nAmp*=nMul;
+    if(spec.trash) nse+=(rnd()*2-1)*spec.trash*Math.exp(-i/(sr*0.32));
+    stick=i<tStick?(rnd()*2-1)*spec.stickAmp*(1-i/tStick):0;
     d[i]=Math.tanh((s+nse+stick)*spec.drive);
   }
   rc=1/(2*Math.PI*spec.hp); hpA=rc/(rc+1/sr); y=0; x1=0; peak=0;
@@ -336,24 +346,32 @@ function bakeCym(ctx, spec){
   for(i=0;i<N;i++) d[i]*=g;
   return buf;
 }
-function bakeKitCymbals(ctx){
-  return {
-    closed: bakeCym(ctx,{dur:.11,f0:620,n:14,exp:1.22,fall:.48,decay:.055,dark:.35,bright:1.7,noise:.22,nDecay:.28,stick:.003,stickAmp:1.1,hp:2400,drive:1.6,peak:.9,seed:11,mid:0.7}),
-    open: bakeCym(ctx,{dur:.42,f0:480,n:18,exp:1.28,fall:.5,decay:.16,dark:.4,bright:1.45,noise:.18,nDecay:.4,stick:.004,stickAmp:.9,hp:1800,drive:1.45,peak:.88,seed:17,mid:.85}),
-    chick: bakeCym(ctx,{dur:.07,f0:540,n:10,exp:1.18,fall:.55,decay:.028,dark:.5,bright:1.1,noise:.16,nDecay:.22,stick:.0025,stickAmp:1.3,hp:900,drive:1.7,peak:.85,seed:23,mid:1.2}),
-    ride: bakeCym(ctx,{dur:1.15,f0:290,n:20,exp:1.33,fall:.62,decay:.28,dark:.55,bright:1.15,noise:.08,nDecay:.35,stick:.0035,stickAmp:.7,hp:600,drive:1.25,peak:.86,seed:31,mid:.7,bell:[[2280,.9,.22],[3410,.45,.14],[4860,.22,.1],[6120,.12,.08]]}),
-    crash: bakeCym(ctx,{dur:2.15,f0:265,n:28,exp:1.36,fall:.46,decay:.62,dark:.42,bright:1.55,noise:.14,nDecay:.5,stick:.006,stickAmp:.85,hp:380,drive:1.35,peak:.92,seed:41,mid:.9}),
-    splash: bakeCym(ctx,{dur:.28,f0:720,n:16,exp:1.3,fall:.42,decay:.08,dark:.3,bright:1.8,noise:.16,nDecay:.3,stick:.003,stickAmp:1,hp:2200,drive:1.5,peak:.88,seed:47,mid:.6}),
-    china: bakeCym(ctx,{dur:.85,f0:240,n:18,exp:1.24,fall:.4,decay:.22,dark:.48,bright:1.05,noise:.2,nDecay:.4,stick:.005,stickAmp:.8,hp:500,drive:1.7,peak:.9,seed:59,mid:1.45,trash:.35})
-  };
-}
+var CYM_SPECS={
+  closed:{dur:.09,f0:620,n:8,exp:1.22,fall:.48,decay:.05,dark:.35,bright:1.7,noise:.22,nDecay:.28,stick:.003,stickAmp:1.1,hp:2400,drive:1.6,peak:.9,seed:11,mid:0.7},
+  open:{dur:.32,f0:480,n:10,exp:1.28,fall:.5,decay:.14,dark:.4,bright:1.45,noise:.18,nDecay:.4,stick:.004,stickAmp:.9,hp:1800,drive:1.45,peak:.88,seed:17,mid:.85},
+  chick:{dur:.06,f0:540,n:7,exp:1.18,fall:.55,decay:.025,dark:.5,bright:1.1,noise:.16,nDecay:.22,stick:.0025,stickAmp:1.3,hp:900,drive:1.7,peak:.85,seed:23,mid:1.2},
+  ride:{dur:.7,f0:290,n:10,exp:1.33,fall:.62,decay:.22,dark:.55,bright:1.15,noise:.08,nDecay:.35,stick:.0035,stickAmp:.7,hp:600,drive:1.25,peak:.86,seed:31,mid:.7,bell:[[2280,.9,.22],[3410,.45,.14],[4860,.22,.1]]},
+  crash:{dur:1.35,f0:265,n:10,exp:1.36,fall:.46,decay:.48,dark:.42,bright:1.55,noise:.14,nDecay:.5,stick:.006,stickAmp:.85,hp:380,drive:1.35,peak:.92,seed:41,mid:.9},
+  splash:{dur:.22,f0:720,n:8,exp:1.3,fall:.42,decay:.07,dark:.3,bright:1.8,noise:.16,nDecay:.3,stick:.003,stickAmp:1,hp:2200,drive:1.5,peak:.88,seed:47,mid:.6},
+  china:{dur:.55,f0:240,n:8,exp:1.24,fall:.4,decay:.18,dark:.48,bright:1.05,noise:.2,nDecay:.4,stick:.005,stickAmp:.8,hp:500,drive:1.7,peak:.9,seed:59,mid:1.45,trash:.35}
+};
 function Synth(ctx,dest){
   this.ctx=ctx;this.dest=dest;
-  var n=ctx.createBuffer(1,Math.max(2048, Math.floor(ctx.sampleRate*1.05)),ctx.sampleRate);
+  var nlen=Math.max(2048, Math.floor(Math.min(ctx.sampleRate,48000)*0.18));
+  var n=ctx.createBuffer(1,nlen,ctx.sampleRate);
   var d=n.getChannelData(0);
   for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   this.noise=n;
-  this.cym=bakeKitCymbals(ctx);
+  this.cym={};
+  try{ this.cym.closed=bakeCym(ctx, CYM_SPECS.closed); }catch(e){}
+  var rest=["open","chick","ride","crash","splash","china"], self=this;
+  function bakeRest(){
+    var id=rest.shift();
+    if(!id) return;
+    try{ self.cym[id]=bakeCym(ctx, CYM_SPECS[id]); }catch(e){}
+    setTimeout(bakeRest, 20);
+  }
+  setTimeout(bakeRest, 30);
 }
 Synth.prototype.reap=function(lead, extras){
   if(!lead) return;
@@ -1395,7 +1413,7 @@ Engine.prototype.begin=function(){
   }
   clearInterval(this.timer);
   var self=this;
-  this.timer=setInterval(function(){self.sched();},25);
+  this.timer=setInterval(function(){self.sched();},40);
   try{ this.sched(); }catch(e){}
   this.emit();
 };
