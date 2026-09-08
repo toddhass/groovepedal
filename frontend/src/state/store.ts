@@ -18,10 +18,44 @@ let engine: Engine | null = null;
 function getEngine(): Engine {
   if (engine) return engine;
   const ctx = new AudioContext();
+
+  const drums = ctx.createGain();
+  drums.gain.value = 0.9;
+
+  const hp = ctx.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 38;
+  hp.Q.value = 0.7;
+
+  const presence = ctx.createBiquadFilter();
+  presence.type = "peaking";
+  presence.frequency.value = 180;
+  presence.Q.value = 0.7;
+  presence.gain.value = 2.5;
+
+  const airCut = ctx.createBiquadFilter();
+  airCut.type = "highshelf";
+  airCut.frequency.value = 6500;
+  airCut.gain.value = -4.5;
+
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -18;
+  comp.knee.value = 18;
+  comp.ratio.value = 3.2;
+  comp.attack.value = 0.006;
+  comp.release.value = 0.16;
+
   const masterGain = ctx.createGain();
-  masterGain.gain.value = 1;
+  masterGain.gain.value = 0.85;
+
+  drums.connect(hp);
+  hp.connect(presence);
+  presence.connect(airCut);
+  airCut.connect(comp);
+  comp.connect(masterGain);
   masterGain.connect(ctx.destination);
-  const synth = new Synth(ctx, masterGain);
+
+  const synth = new Synth(ctx, drums);
   const seq = new Sequencer(synth, ctx);
   const track = new PracticeTrack(ctx, masterGain);
   engine = { ctx, synth, seq, track, masterGain };
@@ -60,7 +94,7 @@ export const useApp = create<AppState>((set, get) => ({
   playing: false,
   song: initialSong,
   bpm: initialSong.bpm,
-  volume: 100,
+  volume: 85,
   step: 0,
   partName: initialSong.parts[0]?.name ?? "—",
   library: SEEDS.map(makeSong),
@@ -95,7 +129,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   setVolume: (v) => {
     const { masterGain } = getEngine();
-    masterGain.gain.setTargetAtTime(v / 100, getEngine().ctx.currentTime, 0.02);
+    const lin = Math.max(0, Math.min(1, v / 100));
+    masterGain.gain.setTargetAtTime(lin * lin * 1.15 + lin * 0.15, getEngine().ctx.currentTime, 0.02);
     set({ volume: v });
   },
 
