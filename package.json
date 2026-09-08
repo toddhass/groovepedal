@@ -1,0 +1,7 @@
+{
+  "name": "groovepedal-react-ui",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"console.log('static player')\""
+  }
+}
