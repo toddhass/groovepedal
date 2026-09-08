@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-08-voices -->
+  <!-- pages-redeploy 2026-09-08-cymbals -->
   <style>
     :root {
       --bg:#11100e; --fg:#f7f4ee; --muted:#cfc9bc; --card:#1f1c18; --secondary:#2d2a24;
@@ -300,7 +300,7 @@ function vel(d){return d==="2"?1:d==="1"?0.72:d==="3"?0.3:0}
 function hit(track,step){if(!track)return 0; return vel(track[step%track.length]||"0")}
 function Synth(ctx,dest){
   this.ctx=ctx;this.dest=dest;
-  var n=ctx.createBuffer(1,Math.max(2048, Math.floor(ctx.sampleRate*0.22)),ctx.sampleRate);
+  var n=ctx.createBuffer(1,Math.max(2048, Math.floor(ctx.sampleRate*1.05)),ctx.sampleRate);
   var d=n.getChannelData(0);
   for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   this.noise=n;
@@ -329,7 +329,26 @@ Synth.prototype.env=function(t,peak,a,dec){
 };
 Synth.prototype.ns=function(t,dur){
   var s=this.ctx.createBufferSource();
-  s.buffer=this.noise;s.loop=true;s.start(t);s.stop(t+dur);return s;
+  s.buffer=this.noise;
+  var len=this.noise.duration;
+  s.loop=dur>len-0.02;
+  var off=Math.random()*Math.max(0.001, s.loop?len*0.85:Math.max(0.001,len-dur));
+  s.start(t, off); s.stop(t+dur); return s;
+};
+Synth.prototype.spray=function(t,dec,freqs){
+  var mix=this.ctx.createGain();
+  var nodes=[], i, o, g;
+  for(i=0;i<freqs.length;i++){
+    o=this.ctx.createOscillator();
+    o.type=i%2?"square":"triangle";
+    o.frequency.setValueAtTime(freqs[i],t);
+    g=this.ctx.createGain(); g.gain.value=1/freqs.length;
+    o.connect(g); g.connect(mix);
+    o.start(t); o.stop(t+dec+.06);
+    nodes.push(o,g);
+  }
+  nodes.push(mix);
+  return {mix:mix, nodes:nodes};
 };
 Synth.prototype.kick=function(t,v){
   var o=this.ctx.createOscillator();o.type="sine";
@@ -347,22 +366,86 @@ Synth.prototype.snare=function(t,v){
   this.reap(n,[bp,g,o,tg]);
 };
 Synth.prototype.hat=function(t,v,dec){
-  var n=this.ns(t,dec+.04);var hp=this.ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=6800;
-  var g=this.env(t,(dec>.1?.26:.22)*v,.001,dec);n.connect(hp);hp.connect(g);g.connect(this.dest);
-  this.reap(n,[hp,g]);
+  var open=dec>0.12;
+  var spray=this.spray(t, dec+.04, open?[265,327,412,523,678]:[327,412,523,678]);
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=open?7200:8800;
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=open?7800:9800; bp.Q.value=0.85;
+  spray.mix.connect(hp); hp.connect(bp);
+  var g=this.env(t,(open?.2:.16)*v,.0012,dec);
+  bp.connect(g); g.connect(this.dest);
+  var n=this.ns(t,dec+.03);
+  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=open?6500:9000;
+  var ng=this.env(t,(open?.1:.07)*v,.001,dec);
+  n.connect(nhp); nhp.connect(ng); ng.connect(this.dest);
+  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,bp,g,n,nhp,ng]));
 };
-Synth.prototype.crash=function(t,v){ this.cymbal(t,v,900,3400,1.05,.42,false); };
-Synth.prototype.cymbal=function(t,v,hpF,bpF,dec,peak,trash){
-  var n=this.ns(t,dec+.15); var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=hpF;
-  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=bpF; bp.Q.value=trash?.4:.7;
-  var g=this.env(t,peak*v,.002,dec); n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.dest);
-  var a=this.ctx.createOscillator(); a.type="square"; a.frequency.setValueAtTime(trash?311:415,t);
-  var b=this.ctx.createOscillator(); b.type="square"; b.frequency.setValueAtTime(trash?466:622,t);
-  var mhp=this.ctx.createBiquadFilter(); mhp.type="highpass"; mhp.frequency.value=hpF;
-  var mg=this.env(t,(trash?.09:.05)*v,.001,dec*.7);
-  a.connect(mhp); b.connect(mhp); mhp.connect(mg); mg.connect(this.dest);
-  a.start(t); b.start(t); a.stop(t+dec); b.stop(t+dec);
-  this.reap(n,[hp,bp,g,a,b,mhp,mg]);
+Synth.prototype.chick=function(t,v){
+  var n=this.ns(t,.04);
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=3200; bp.Q.value=1.4;
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=900;
+  var g=this.env(t,.28*v,.001,.035);
+  n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.dest);
+  this.reap(n,[hp,bp,g]);
+};
+Synth.prototype.ride=function(t,v){
+  var bell=this.ctx.createOscillator(); bell.type="triangle"; bell.frequency.setValueAtTime(2350,t);
+  var over=this.ctx.createOscillator(); over.type="sine"; over.frequency.setValueAtTime(3520,t);
+  var bg=this.env(t,.22*v,.001,.32); var og=this.env(t,.08*v,.001,.18);
+  bell.connect(bg); over.connect(og); bg.connect(this.dest); og.connect(this.dest);
+  bell.start(t); over.start(t); bell.stop(t+.4); over.stop(t+.26);
+  var n=this.ns(t,.48);
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7800;
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=9000; bp.Q.value=0.9;
+  var ng=this.env(t,.12*v,.002,.42);
+  n.connect(hp); hp.connect(bp); bp.connect(ng); ng.connect(this.dest);
+  this.reap(bell,[over,bg,og,n,hp,bp,ng]);
+};
+Synth.prototype.crash=function(t,v){
+  var dec=1.7;
+  var spray=this.spray(t, dec, [283,349,417,521,659]);
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=3800;
+  var lp=this.ctx.createBiquadFilter(); lp.type="lowpass";
+  lp.frequency.setValueAtTime(11000,t);
+  try{ lp.frequency.exponentialRampToValueAtTime(2200,t+1.35); }catch(e){}
+  spray.mix.connect(hp); hp.connect(lp);
+  var g=this.env(t,.24*v,.003,dec);
+  lp.connect(g); g.connect(this.dest);
+  var n=this.ns(t,dec);
+  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=3200;
+  var nlp=this.ctx.createBiquadFilter(); nlp.type="lowpass";
+  nlp.frequency.setValueAtTime(10000,t);
+  try{ nlp.frequency.exponentialRampToValueAtTime(2400,t+1.4); }catch(e){}
+  var ng=this.env(t,.2*v,.004,dec);
+  n.connect(nhp); nhp.connect(nlp); nlp.connect(ng); ng.connect(this.dest);
+  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,lp,g,n,nhp,nlp,ng]));
+};
+Synth.prototype.splash=function(t,v){
+  var dec=.2;
+  var spray=this.spray(t, dec+.05, [410,523,678,890]);
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=6200;
+  spray.mix.connect(hp);
+  var g=this.env(t,.22*v,.001,dec);
+  hp.connect(g); g.connect(this.dest);
+  var n=this.ns(t,dec+.04);
+  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=7000;
+  var ng=this.env(t,.14*v,.001,dec);
+  n.connect(nhp); nhp.connect(ng); ng.connect(this.dest);
+  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,g,n,nhp,ng]));
+};
+Synth.prototype.china=function(t,v){
+  var dec=.52;
+  var spray=this.spray(t, dec, [233,311,394,466]);
+  var hp=this.ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1600;
+  var bp=this.ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=2600; bp.Q.value=0.55;
+  spray.mix.connect(hp); hp.connect(bp);
+  var g=this.env(t,.26*v,.002,dec);
+  bp.connect(g); g.connect(this.dest);
+  var n=this.ns(t,dec);
+  var nhp=this.ctx.createBiquadFilter(); nhp.type="highpass"; nhp.frequency.value=1400;
+  var nbp=this.ctx.createBiquadFilter(); nbp.type="bandpass"; nbp.frequency.value=2400; nbp.Q.value=0.6;
+  var ng=this.env(t,.18*v,.002,dec);
+  n.connect(nhp); nhp.connect(nbp); nbp.connect(ng); ng.connect(this.dest);
+  this.reap(spray.nodes[0], spray.nodes.slice(1).concat([hp,bp,g,n,nhp,nbp,ng]));
 };
 Synth.prototype.tom=function(t,v,f,dec){
   dec=dec||.22;
@@ -386,13 +469,13 @@ Synth.prototype.trig=function(voice,t,v){
   else if(voice==="snare")this.snare(t,v);
   else if(voice==="clap")this.snare(t,v*.9);
   else if(voice==="rim")this.tom(t,v*.8,420,.08);
-  else if(voice==="hat")this.hat(t,v,.09);
-  else if(voice==="openHat")this.hat(t,v,.32);
-  else if(voice==="pedalHat")this.hat(t,v*.85,.045);
-  else if(voice==="ride")this.hat(t,v,.42);
-  else if(voice==="crash")this.cymbal(t,v,900,3400,1.05,.42,false);
-  else if(voice==="splash")this.cymbal(t,v,4200,7200,.22,.32,false);
-  else if(voice==="china")this.cymbal(t,v,1100,2800,.55,.38,true);
+  else if(voice==="hat")this.hat(t,v,.055);
+  else if(voice==="openHat")this.hat(t,v,.26);
+  else if(voice==="pedalHat")this.chick(t,v);
+  else if(voice==="ride")this.ride(t,v);
+  else if(voice==="crash")this.crash(t,v);
+  else if(voice==="splash")this.splash(t,v);
+  else if(voice==="china")this.china(t,v);
   else if(voice==="highTom")this.tom(t,v,235,.18);
   else if(voice==="tom")this.tom(t,v,155,.24);
   else if(voice==="floor")this.tom(t,v,88,.34);
