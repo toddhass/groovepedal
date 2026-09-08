@@ -1,8 +1,18 @@
-# GroovePedal
+# GroovePedal — modern stack rebuild
 
-Browser drum machine for guitarists. Search a song, tap Start, play along.
+Rebuild of the single-file GroovePedal drum machine as a Vite/React/TypeScript
+frontend with a Rust/axum backend.
 
-Not affiliated with any hardware pedal.
+## Frontend
+```
+cd frontend
+npm install
+npm run dev       # http://localhost:5173, proxies /api to :8787
+npm run build      # production build to frontend/dist
+```
 
-- Live: https://toddhass.github.io/groovepedal/
-- Also: https://groovepedal.vercel.app/
+## Backend
+```
+cd backend
+cargo run           # listens on :8787
+```
