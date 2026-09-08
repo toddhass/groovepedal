@@ -5,185 +5,190 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>GroovePedal</title>
-  <!-- pages-redeploy 2026-09-07-stable-branch -->
+  <!-- pages-redeploy 2026-09-08-ui -->
   <style>
-    :root { --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --gold:#d7b24a; --dim:#3a3732; --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee; }
+    :root {
+      --bg:#0c0c0b; --fg:#ece8e1; --muted:#8f8a80; --card:#161513; --secondary:#23211d;
+      --primary:#e6e1d8; --primary-fg:#121110; --dim:#3a3732;
+      --fill:#2d62f0; --next:#21964a; --restart:#e56a18; --accent:#6b38dc; --pedal:#f7f4ee;
+      --border: 0 0 0 1px rgb(255 255 255 / .08);
+    }
     * { box-sizing: border-box; }
     html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: Figtree, ui-sans-serif, system-ui, sans-serif; touch-action: manipulation; -webkit-tap-highlight-color: transparent; overflow-x: hidden; max-width: 100%; min-height: 100dvh; }
     button:not(:disabled) { cursor: pointer; }
-    .wrap { width: 100%; max-width: 28rem; margin: 0 auto; padding: 1.25rem 1rem max(1.25rem, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
-    h1 { font-family: Oswald, ui-sans-serif, system-ui, sans-serif; font-size: 1.5rem; letter-spacing: .04em; color: var(--gold); text-align: center; margin: 0; font-weight: 600; }
-    .sub { text-align: center; color: var(--muted); font-size: .875rem; margin: .25rem 0 0; }
-    .card { background: var(--card); border-radius: 1rem; padding: .5rem; box-shadow: 0 0 0 1px rgb(255 255 255 / .08); min-width: 0; }
-    .library { display: flex; flex-direction: column; min-height: 0; }
-    input[type=search] { width: 100%; height: 2.75rem; border: 0; border-radius: .75rem; background: var(--bg); color: var(--fg); padding: 0 1rem; font: inherit; box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
-    input[type=search]:focus { outline: 2px solid rgb(215 178 74 / .7); }
-    .list { max-height: 9rem; overflow-y: auto; margin-top: .5rem; min-height: 0; }
-    .row { width: 100%; display: flex; justify-content: space-between; gap: .75rem; text-align: left; background: transparent; border: 0; color: inherit; border-radius: .5rem; padding: .65rem .75rem; font: inherit; min-width: 0; }
-    .row.active { background: rgb(215 178 74 / .15); box-shadow: 0 0 0 1px var(--gold); }
-    .row .t { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row.active .t, .row.active .bpm { color: var(--gold); }
-    .row .a, .row .bpm { color: var(--muted); font-size: .875rem; }
-    .row .a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .info { padding: .75rem 1rem; }
-    dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: .35rem 1rem; margin: 0; font-size: .875rem; }
-    dt { color: var(--muted); } dd { margin: 0; text-align: right; color: var(--gold); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .dots { display: flex; justify-content: center; gap: 1.25rem; margin-top: 1rem; }
-    .dot { width: .875rem; height: .875rem; border-radius: 999px; background: var(--dim); }
-    .dot.on { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
-    .start { min-height: 3rem; width: 100%; border: 0; border-radius: .75rem; background: #23211d; color: var(--fg); font-family: Oswald, sans-serif; font-size: 1.15rem; letter-spacing: .2em; }
+    .wrap { width: 100%; max-width: 28rem; margin: 0 auto; padding: 1rem 1rem 5.5rem; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+    .brand { font-size: .875rem; font-weight: 600; letter-spacing: -.02em; }
+    .brand small { display: block; color: var(--muted); font-size: .75rem; font-weight: 400; }
+    .badge { border-radius: 999px; padding: .25rem .75rem; font-size: .75rem; font-weight: 500; background: var(--secondary); color: var(--muted); }
+    .badge.on { background: var(--primary); color: var(--primary-fg); }
+    .card { background: var(--card); border-radius: 1rem; padding: 1rem; box-shadow: var(--border); min-width: 0; }
+    .kicker { margin: 0 0 .5rem; font-size: .75rem; color: var(--muted); font-weight: 500; }
+    .now h2 { margin: .35rem 0 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .now .who { margin: .25rem 0 0; color: var(--muted); font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .75rem; text-align: center; margin-top: 1rem; }
+    .meta dt { color: var(--muted); font-size: .75rem; } .meta dd { margin: .15rem 0 0; font-size: .875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .steps { display: flex; gap: .5rem; margin-top: 1.15rem; }
+    .beat { display: flex; flex: 1; min-width: 0; gap: .2rem; }
+    .step { height: .4rem; flex: 1; border-radius: 999px; background: var(--dim); }
+    .step.on { background: var(--primary); }
+    .step.fill { background: var(--fill); }
+    .start { min-height: 3.5rem; width: 100%; border: 0; border-radius: .75rem; background: var(--primary); color: var(--primary-fg); font: 600 1rem Figtree, sans-serif; }
+    .start.stop { background: var(--secondary); color: var(--fg); box-shadow: var(--border); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
-    .pedal { min-height: 3rem; width: 100%; border: 0; border-radius: .75rem; color: var(--pedal); font-family: Oswald, sans-serif; letter-spacing: .16em; font-size: .875rem; }
-    .wide { grid-column: span 2; }
+    .pedal { min-height: 3rem; width: 100%; border: 0; border-radius: .5rem; color: var(--pedal); font: 600 .9rem Figtree, sans-serif; }
     .fill { background: var(--fill); } .next { background: var(--next); } .restart { background: var(--restart); } .crash { background: var(--accent); }
-    .sliders { display: flex; flex-direction: column; gap: .65rem; padding: 0 .25rem; }
-    .sl { display: flex; align-items: center; gap: .75rem; font-size: .875rem; min-width: 0; }
-    .sl span:first-child { width: 4rem; flex-shrink: 0; color: var(--muted); }
-    .sl span:last-child { width: 2.5rem; flex-shrink: 0; text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; }
-    input[type=range] { flex: 1; min-width: 0; appearance: none; height: 2.5rem; background: linear-gradient(to right, var(--gold) 0 var(--pct,50%), var(--dim) var(--pct,50%) 100%); background-size: 100% .28rem; background-repeat: no-repeat; background-position: center; }
+    .sliders { display: flex; flex-direction: column; gap: .5rem; }
+    .sl { display: flex; align-items: center; gap: .75rem; font-size: .75rem; min-width: 0; color: var(--muted); }
+    .sl span:last-child { width: 2rem; flex-shrink: 0; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; font-size: .875rem; }
+    input[type=range] { flex: 1; min-width: 0; appearance: none; height: 2.5rem; background: linear-gradient(to right, var(--primary) 0 var(--pct,50%), var(--dim) var(--pct,50%) 100%); background-size: 100% .28rem; background-repeat: no-repeat; background-position: center; }
     input[type=range]::-webkit-slider-thumb { appearance: none; width: 1.15rem; height: 1.15rem; border-radius: 999px; background: var(--fg); }
-    .label { color: var(--muted); font-size: .875rem; margin: 0 0 .35rem; }
+    input[type=search] { width: 100%; height: 2.75rem; border: 0; border-radius: .5rem; background: var(--bg); color: var(--fg); padding: 0 .85rem; font: inherit; box-shadow: var(--border); }
+    input[type=search]:focus { outline: 2px solid rgb(230 225 216 / .45); }
+    .list { max-height: 14rem; overflow-y: auto; margin-top: .5rem; min-height: 0; }
+    .row { width: 100%; display: flex; justify-content: space-between; gap: .75rem; text-align: left; background: transparent; border: 0; color: inherit; border-radius: .5rem; padding: .65rem .75rem; font: inherit; min-width: 0; }
+    .row.active { background: rgb(230 225 216 / .1); }
+    .row .t { font-weight: 600; font-size: .875rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .a, .row .bpm { color: var(--muted); font-size: .75rem; }
+    .row .a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .label { color: var(--muted); font-size: .75rem; margin: 0 0 .4rem; font-weight: 500; }
     .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .chip, .inst { min-height: 2.75rem; border: 0; border-radius: .75rem; background: #23211d; color: var(--fg); font-family: Oswald, sans-serif; letter-spacing: .14em; font-size: .75rem; padding: 0 .75rem; }
-    .chip.on, .inst.on { background: var(--gold); color: #1a160c; }
-    .inst { min-height: 2.75rem; width: 100%; font-size: .75rem; }
+    .chip { min-height: 2.5rem; border: 0; border-radius: 999px; background: var(--secondary); color: var(--muted); font: 500 .8rem Figtree, sans-serif; padding: 0 .9rem; }
+    .chip.on, .inst.on { background: var(--primary); color: var(--primary-fg); }
+    .inst { min-height: 2.75rem; width: 100%; border: 0; border-radius: .5rem; background: var(--secondary); color: var(--fg); font: 500 .8rem Figtree, sans-serif; }
     .file-btn { display: flex; align-items: center; justify-content: center; position: relative; }
     .file-btn input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-    .hint { color: var(--muted); font-size: .75rem; margin: 0 0 .4rem; line-height: 1.4; }
-    .track-name { color: var(--gold); font-size: .875rem; margin: .35rem 0 .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ai-bar { height: .4rem; border-radius: 999px; background: #23211d; overflow: hidden; margin: 0 0 .5rem; }
-    .ai-fill { height: 100%; width: 0; background: var(--gold); }
-    .apple-list { max-height: 11rem; overflow-y: auto; display: flex; flex-direction: column; gap: .2rem; margin: 0 0 .55rem; }
-    .apple-row { min-height: 2.75rem; text-align: left; background: #23211d; color: var(--ink); border: 0; border-radius: .7rem; padding: .45rem .7rem; }
-    .apple-row .t { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hint { color: var(--muted); font-size: .75rem; margin: 0 0 .4rem; line-height: 1.45; }
+    .track-name { color: var(--fg); font-size: .875rem; margin: .2rem 0 .35rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai-bar { height: .25rem; border-radius: 999px; background: var(--secondary); overflow: hidden; margin: 0 0 .5rem; }
+    .ai-fill { height: 100%; width: 0; background: var(--primary); }
+    .apple-list { max-height: 10rem; overflow-y: auto; margin: 0 0 .5rem; border-radius: .5rem; background: var(--bg); box-shadow: var(--border); }
+    .apple-row { min-height: 2.75rem; width: 100%; text-align: left; background: transparent; color: var(--fg); border: 0; border-radius: .4rem; padding: .45rem .7rem; font: inherit; }
+    .apple-row .t { display: block; font-weight: 600; font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .apple-row .a { display: block; color: var(--muted); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .inst[disabled] { opacity: .4; }
     .inst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
-    @media (min-width: 640px) { .inst-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } }
-    .band-list { max-height: 13rem; overflow-y: auto; border-radius: .75rem; background: var(--bg); box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
-    .kit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem .4rem; margin: 0 0 .7rem; }
-    .kit-grid span { font-size: .8rem; color: var(--fg); background: #23211d; border-radius: .55rem; padding: .4rem .6rem; }
-    .band-group { color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; margin: .45rem .75rem .15rem; }
+    .band-list { max-height: 13rem; overflow-y: auto; border-radius: .5rem; background: var(--bg); box-shadow: var(--border); }
+    .band-group { color: var(--muted); font-size: .75rem; margin: .45rem .75rem .15rem; }
     .band-row { width: 100%; display: block; text-align: left; background: transparent; border: 0; color: inherit; border-radius: .5rem; padding: .55rem .75rem; font: inherit; }
-    .band-row.on { background: rgb(215 178 74 / .15); box-shadow: 0 0 0 1px var(--gold); }
-    .band-row .t { font-weight: 600; display: block; }
-    .band-row.on .t { color: var(--gold); }
+    .band-row.on { background: rgb(230 225 216 / .1); }
+    .band-row .t { font-weight: 600; font-size: .875rem; display: block; }
     .band-row .a { color: var(--muted); font-size: .75rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .foot { text-align: center; color: var(--muted); font-size: .75rem; }
     .empty { padding: 1.5rem .75rem; text-align: center; color: var(--muted); font-size: .875rem; }
-    .player { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
-    @media (min-width: 640px) {
-      h1 { font-size: 1.85rem; }
-      .list { max-height: 13rem; }
-      .start, .pedal { min-height: 3.5rem; }
-    }
-    @media (min-width: 768px) {
+    .player, .library, .rail { display: none; flex-direction: column; gap: .75rem; min-width: 0; }
+    .player { display: flex; }
+    body.pane-songs .library { display: flex; }
+    body.pane-track .rail-track { display: flex; }
+    body.pane-band .rail-band { display: flex; }
+    .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .25rem; padding: .5rem 1rem max(.75rem, env(safe-area-inset-bottom)); background: rgb(12 12 11 / .92); backdrop-filter: blur(8px); }
+    .tabs button { min-height: 2.5rem; border: 0; border-radius: .5rem; background: transparent; color: var(--muted); font: 500 .875rem Figtree, sans-serif; }
+    .tabs button.on { background: var(--card); color: var(--fg); box-shadow: var(--border); }
+    @media (min-width: 1024px) {
       .wrap {
-        max-width: 72rem;
+        max-width: 80rem;
         min-height: 100dvh;
         display: grid;
-        grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 1.1fr);
-        grid-template-areas: "head head" "list player" "foot foot";
-        gap: 1rem 1.5rem;
-        padding: 1.75rem 1.5rem max(1.5rem, env(safe-area-inset-bottom));
+        grid-template-columns: minmax(16rem, .95fr) minmax(20rem, 1.2fr) minmax(16rem, .95fr);
+        grid-template-areas: "head head head" "list player tabs" "list player rail" "foot foot foot";
+        gap: 1rem 1.25rem;
+        padding: 1.75rem 2rem max(1.5rem, env(safe-area-inset-bottom));
         align-content: start;
       }
       header { grid-area: head; }
-      .library { grid-area: list; height: 100%; }
+      .library { grid-area: list; display: flex !important; min-height: 24rem; }
       .list { max-height: none; flex: 1; }
       .player { grid-area: player; }
+      .rail-track { grid-area: rail; }
+      .rail-band { grid-area: rail; }
+      body.pane-band .rail-track { display: none !important; }
+      body:not(.pane-band) .rail-track { display: flex !important; }
+      body.pane-band .rail-band { display: flex !important; }
+      body:not(.pane-band) .rail-band { display: none !important; }
+      .tabs { position: static; grid-area: tabs; padding: 0; background: transparent; backdrop-filter: none; grid-template-columns: 1fr 1fr; }
+      .tabs [data-tab="songs"] { display: none; }
       .foot { grid-area: foot; }
-      h1 { font-size: 2.15rem; }
-      .sub { font-size: 1rem; }
-      dl { font-size: 1rem; }
-    }
-    @media (min-width: 1024px) {
-      .wrap { max-width: 80rem; padding: 2rem 2rem max(2rem, env(safe-area-inset-bottom)); gap: 1.25rem 2rem; }
-      .dot { width: 1rem; height: 1rem; }
-    }
-    @media (max-width: 380px) {
-      h1 { font-size: 1.3rem; }
-      .list { max-height: 7.5rem; }
-      .wrap { padding: 0.85rem 0.7rem max(0.85rem, env(safe-area-inset-bottom)); gap: 0.55rem; }
     }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&family=Oswald:wght@600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap" />
 </head>
-<body>
+<body class="pane-songs">
   <div class="wrap">
     <header>
-      <h1>GroovePedal Library</h1>
-      <p class="sub">Search a song, play drums along — load a track to mute guitar</p>
+      <div class="brand">GroovePedal<small>Play along. Stay in the pocket.</small></div>
+      <span class="badge" id="status">Ready</span>
     </header>
+    <div class="player">
+      <section class="card now">
+        <p class="kicker">Now playing</p>
+        <h2 id="song">—</h2>
+        <p class="who" id="artist">—</p>
+        <dl class="meta">
+          <div><dt>Groove</dt><dd id="groove">—</dd></div>
+          <div><dt>Part</dt><dd id="part">—</dd></div>
+          <div><dt>Tempo</dt><dd id="tempo">—</dd></div>
+        </dl>
+        <div class="steps" id="dots"></div>
+      </section>
+      <button class="start" id="start" type="button">Start</button>
+      <div class="grid">
+        <button class="pedal fill" id="fill" type="button">Fill</button>
+        <button class="pedal next" id="next" type="button">Next part</button>
+        <button class="pedal restart" id="restart" type="button">Restart</button>
+        <button class="pedal crash" id="accent" type="button">Crash</button>
+      </div>
+      <section class="card">
+        <p class="label">Groove</p>
+        <div class="chips" id="styles"></div>
+        <div class="sliders" style="margin-top:1rem">
+          <label class="sl">Tempo <input id="bpm" type="range" min="40" max="240" value="120" /> <span id="bpmv">120</span></label>
+          <label class="sl">Volume <input id="vol" type="range" min="0" max="100" value="100" /> <span id="volv">100</span></label>
+        </div>
+      </section>
+    </div>
     <div class="card library">
-      <input id="q" type="search" placeholder="Search any song... e.g. Hotel California" aria-label="Search songs" />
+      <p class="kicker">Library</p>
+      <input id="q" type="search" placeholder="Search a song" aria-label="Search songs" />
       <div id="list" class="list"></div>
     </div>
-    <div class="player">
-    <section class="card info">
-      <dl>
-        <dt>Song</dt><dd id="song">—</dd>
-        <dt>Artist</dt><dd id="artist">—</dd>
-        <dt>Groove</dt><dd id="groove">—</dd>
-        <dt>Part</dt><dd id="part">—</dd>
-        <dt>Tempo</dt><dd id="tempo">—</dd>
-        <dt>Status</dt><dd id="status">Stopped</dd>
-      </dl>
-      <div class="dots" id="dots"></div>
-    </section>
-    <button class="start" id="start" type="button">▶ START</button>
-    <div class="grid">
-      <button class="pedal fill" id="fill" type="button">FILL</button>
-      <button class="pedal next" id="next" type="button">NEXT PART</button>
-      <button class="pedal restart wide" id="restart" type="button">RESTART</button>
-      <button class="pedal crash wide" id="accent" type="button">ACCENT / CRASH</button>
-    </div>
-    <div class="sliders">
-      <p class="label">Groove style</p>
-      <div class="chips" id="styles"></div>
-      <p class="label">Practice track</p>
-      <p class="hint">Load a song, WebM, or MP4 — or tap an Apple 30s preview. Then hit START.</p>
+    <div class="rail rail-track card">
+      <p class="kicker">Practice track</p>
+      <p class="hint">Load an mp3 or m4a, or tap a 30-second Apple preview. Then hit Start.</p>
       <div class="apple-list" id="applehits"></div>
       <div class="inst-grid">
-        <label class="inst file-btn">LOAD FILE<input id="trackfile" type="file" accept="audio/*,video/webm,video/mp4,.mp3,.m4a,.wav,.aac,.ogg,.webm,.mp4,.mkv" /></label>
-        <button class="inst" id="findinst" type="button">FIND INSTRUMENTAL</button>
+        <label class="inst file-btn">Load file<input id="trackfile" type="file" accept="audio/*,video/webm,video/mp4,.mp3,.m4a,.wav,.aac,.ogg,.webm,.mp4,.mkv" /></label>
+        <button class="inst" id="findinst" type="button">Find instrumental</button>
       </div>
       <p class="track-name" id="trackname">No file loaded</p>
       <p class="hint" id="trackai"></p>
       <div class="ai-bar" id="aibarwrap" hidden><div class="ai-fill" id="aibar"></div></div>
-      <button class="inst" id="retryai" type="button" hidden>AI SPLIT</button>
-      <button class="inst" id="ailock" type="button" disabled>AI LOCK</button>
-      <button class="inst" id="countin" type="button">COUNT-IN</button>
+      <button class="inst" id="retryai" type="button" hidden>AI split</button>
       <div class="inst-grid">
-        <button class="inst" id="trackvocals" type="button" disabled>VOCALS</button>
-        <button class="inst" id="trackguitar" type="button" disabled>GUITAR</button>
+        <button class="inst" id="countin" type="button">Count-in</button>
+        <button class="inst" id="ailock" type="button" disabled>AI lock</button>
+        <button class="inst" id="trackvocals" type="button" disabled>Vocals</button>
+        <button class="inst" id="trackguitar" type="button" disabled>Guitar</button>
       </div>
       <div class="inst-grid" id="nudgewrap" hidden>
-        <button class="inst" id="songearly" type="button">SONG EARLY</button>
-        <button class="inst" id="songlate" type="button">SONG LATE</button>
+        <button class="pedal restart" id="songearly" type="button">Song early</button>
+        <button class="pedal next" id="songlate" type="button">Song late</button>
       </div>
-      <p class="label">Drum kit</p>
-      <div class="kit-grid">
-        <span>Bass drum</span><span>Snare</span><span>Rim</span>
-        <span>Closed hat</span><span>Open hat</span><span>Pedal hat</span>
-        <span>High tom</span><span>Mid tom</span><span>Floor tom</span>
-        <span>Crash</span><span>Splash</span><span>China</span>
-        <span>Ride</span>
-      </div>
-      <p class="label">Percussion</p>
-      <button class="inst" id="cowbell" type="button">COWBELL</button>
-      <button class="inst" id="midi" type="button">MIDI CONNECT</button>
-      <p class="hint" id="midihelp"></p>
-      <p class="label">Band</p>
+    </div>
+    <div class="rail rail-band card">
+      <p class="kicker">Band</p>
       <div class="band-list" id="ensembles"></div>
-      <p class="label">Instruments</p>
       <div id="inst-groups"></div>
-      <label class="sl">Tempo <input id="bpm" type="range" min="40" max="240" value="120" /> <span id="bpmv">120</span></label>
-      <label class="sl">Volume <input id="vol" type="range" min="0" max="100" value="100" /> <span id="volv">100</span></label>
+      <button class="inst" id="cowbell" type="button">Cowbell</button>
+      <button class="inst" id="midi" type="button">Connect MIDI</button>
+      <p class="hint" id="midihelp"></p>
     </div>
-    </div>
-    <p class="foot">GroovePedal is a software drum machine. Not affiliated with any hardware pedal.</p>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="songs" class="on">Songs</button>
+      <button type="button" data-tab="track">Track</button>
+      <button type="button" data-tab="band">Band</button>
+    </nav>
+    <p class="foot">Software drum machine. Not affiliated with any hardware pedal.</p>
   </div>
   <script>
 var SEEDS = [
@@ -1257,12 +1262,23 @@ function paint(st){
   $("groove").textContent=LABELS[st.feel]||st.feel||song.feel;
   $("part").textContent=st.partName;
   $("tempo").textContent=(Math.round(st.bpm*10)/10)+" BPM";
-  $("status").textContent=!st.playing?"Stopped":!st.ready?"Tap for sound":st.inFill?"Fill":"Playing";
-  $("start").textContent=st.playing&&st.ready?"■ STOP":st.playing?"TAP FOR SOUND":"▶ START";
+  $("status").textContent=!st.playing?"Ready":!st.ready?"Tap for sound":st.inFill?"Fill":"Playing";
+  $("status").classList.toggle("on", !!(st.playing && st.ready));
+  $("start").textContent=st.playing&&st.ready?"Stop":st.playing?"Tap for sound":"Start";
+  $("start").classList.toggle("stop", !!st.playing);
   $("bpm").value=Math.round(st.bpm); $("bpmv").textContent=Math.round(st.bpm*10)/10;
   $("bpm").style.setProperty("--pct",((st.bpm-40)/200*100)+"%");
-  var beat=st.playing?Math.floor(st.step/4)%4:-1;
-  $("dots").innerHTML=[0,1,2,3].map(function(i){return '\x3cspan class="dot '+(i===beat?"on":"")+'"\x3e\x3c/span\x3e';}).join("");
+  var cur=st.playing?st.step%16:-1;
+  var html="", b, s, idx, on;
+  for(b=0;b<4;b++){
+    html+='\x3cdiv class="beat"\x3e';
+    for(s=0;s<4;s++){
+      idx=b*4+s; on=idx===cur;
+      html+='\x3cspan class="step'+(on?(st.inFill?" fill":" on"):"")+'"\x3e\x3c/span\x3e';
+    }
+    html+='\x3c/div\x3e';
+  }
+  $("dots").innerHTML=html;
   $("styles").querySelectorAll(".chip").forEach(function(btn){btn.classList.toggle("on",btn.dataset.feel===st.feel);});
   $("ensembles").querySelectorAll(".band-row").forEach(function(btn){btn.classList.toggle("on",btn.dataset.ens===st.ensemble);});
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){btn.classList.toggle("on",!!st.enabled[btn.dataset.id]);});
@@ -1270,7 +1286,7 @@ function paint(st){
   $("trackname").textContent=st.trackName||"No file loaded";
   $("ailock").disabled=!st.trackName;
   $("ailock").classList.toggle("on",!!st.trackName&&!!st.liveLockOn);
-  $("ailock").textContent=st.liveLock==="locked"?"AI LOCK · LIVE":st.liveLock==="listening"?"AI LOCK · LISTENING":"AI LOCK";
+  $("ailock").textContent=st.liveLock==="locked"?"AI lock · live":st.liveLock==="listening"?"AI lock · listen":"AI lock";
   $("countin").classList.toggle("on",!!st.countInOn);
   $("trackvocals").disabled=!st.trackName;
   $("trackguitar").disabled=!st.trackName;
@@ -1281,7 +1297,7 @@ function paint(st){
   $("aibarwrap").hidden=!(st.trackName&&st.trackAi==="working");
   $("aibar").style.width=Math.round((st.trackAiProgress||0)*100)+"%";
   $("retryai").hidden=!(st.trackName&&st.trackAi!=="working"&&st.trackAi!=="ready");
-  $("retryai").textContent=st.trackAi==="error"?"RETRY AI SPLIT":"AI SPLIT";
+  $("retryai").textContent=st.trackAi==="error"?"Retry AI split":"AI split";
 }
 engine.sub(paint); engine.load(song); renderList(); paint(); searchApple();
 function press(el,fn){
@@ -1389,7 +1405,7 @@ $("ensembles").querySelectorAll(".band-row").forEach(function(btn){
   INST.forEach(function(i){ if(!seen[i.group]){seen[i.group]=[]; groups.push(i.group);} seen[i.group].push(i); });
   $("inst-groups").innerHTML=groups.map(function(g){
     return '\x3cp class="label"\x3e'+g+'\x3c/p\x3e\x3cdiv class="inst-grid"\x3e'+seen[g].map(function(i){
-      return '\x3cbutton class="inst" type="button" data-id="'+i.id+'"\x3e'+i.label.toUpperCase()+'\x3c/button\x3e';
+      return '\x3cbutton class="inst" type="button" data-id="'+i.id+'"\x3e'+i.label+'\x3c/button\x3e';
     }).join("")+'\x3c/div\x3e';
   }).join("");
   $("inst-groups").querySelectorAll(".inst").forEach(function(btn){
@@ -1397,6 +1413,14 @@ $("ensembles").querySelectorAll(".band-row").forEach(function(btn){
   });
 })();
 paint();
+document.querySelectorAll("#tabs [data-tab]").forEach(function(btn){
+  btn.addEventListener("click",function(){
+    var tab=btn.dataset.tab;
+    document.body.classList.remove("pane-songs","pane-track","pane-band");
+    document.body.classList.add("pane-"+tab);
+    document.querySelectorAll("#tabs [data-tab]").forEach(function(b){ b.classList.toggle("on", b===btn); });
+  });
+});
 $("bpm").addEventListener("pointerdown",function(){engine.unlock();});
 $("bpm").addEventListener("input",function(e){engine.setBpm(+e.target.value);});
 $("vol").addEventListener("pointerdown",function(){engine.unlock();});
