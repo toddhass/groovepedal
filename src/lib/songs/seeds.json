@@ -1,0 +1,9 @@
+[
+  { "id": "wagon-wheel", "title": "Wagon Wheel", "artist": "Old Crow Medicine Show", "bpm": 146, "feel": "country" },
+  { "id": "leaving-on-a-jet-plane", "title": "Leaving on a Jet Plane", "artist": "John Denver", "bpm": 121, "feel": "folk" },
+  { "id": "wild-horses", "title": "Wild Horses", "artist": "The Rolling Stones", "bpm": 76, "feel": "ballad" },
+  { "id": "wonderwall", "title": "Wonderwall", "artist": "Oasis", "bpm": 87, "feel": "rock" },
+  { "id": "brown-eyed-girl", "title": "Brown Eyed Girl", "artist": "Van Morrison", "bpm": 129, "feel": "pop" },
+  { "id": "country-roads", "title": "Take Me Home Country Roads", "artist": "John Denver", "bpm": 82, "feel": "folk" },
+  { "id": "sweet-home-alabama", "title": "Sweet Home Alabama", "artist": "Lynyrd Skynyrd", "bpm": 98, "feel": "southern" }
+]
