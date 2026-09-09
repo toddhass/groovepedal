@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { Synth } from "../audio/synth";
 import { Sequencer } from "../audio/sequencer";
 import { PracticeTrack } from "../audio/practiceTrack";
+import { SoundFontKit } from "../audio/soundfontKit";
 import { makeSong, Song, SEEDS } from "../data/songs";
 import { Feel, LABELS, STYLES } from "../data/grooves";
 
@@ -11,6 +12,7 @@ interface Engine {
   seq: Sequencer;
   track: PracticeTrack;
   masterGain: GainNode;
+  sf: SoundFontKit;
 }
 
 let engine: Engine | null = null;
@@ -55,10 +57,24 @@ function getEngine(): Engine {
   comp.connect(masterGain);
   masterGain.connect(ctx.destination);
 
+  const sf = new SoundFontKit(ctx, drums);
+  void sf.preload();
+
   const synth = new Synth(ctx, drums);
+  const rawTrig = synth.trig.bind(synth);
+  synth.trig = (voice, t, v) => {
+    if (sf.playDrum(voice, t, v)) return;
+    rawTrig(voice, t, v);
+  };
+  const rawCrash = synth.crash.bind(synth);
+  synth.crash = (t, v) => {
+    if (sf.playDrum("crash", t, v)) return;
+    rawCrash(t, v);
+  };
+
   const seq = new Sequencer(synth, ctx);
   const track = new PracticeTrack(ctx, masterGain);
-  engine = { ctx, synth, seq, track, masterGain };
+  engine = { ctx, synth, seq, track, masterGain, sf };
   return engine;
 }
 
@@ -96,7 +112,7 @@ export const useApp = create<AppState>((set, get) => ({
   bpm: initialSong.bpm,
   volume: 85,
   step: 0,
-  partName: initialSong.parts[0]?.name ?? "—",
+  partName: initialSong.parts[0]?.name ?? "\u2014",
   library: SEEDS.map(makeSong),
   query: "",
 
@@ -107,9 +123,10 @@ export const useApp = create<AppState>((set, get) => ({
     const seed = SEEDS.find((s) => s.id === id);
     if (!seed) return;
     const song = makeSong(seed);
-    const { seq } = getEngine();
+    const { seq, sf } = getEngine();
+    void sf.preload();
     seq.setParts(song.parts);
-    set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "—" });
+    set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "\u2014" });
   },
 
   selectFeel: (feel) => {
@@ -117,7 +134,7 @@ export const useApp = create<AppState>((set, get) => ({
     const song = makeSong({ id: `custom-${feel}`, title: LABELS[feel], artist: STYLES.find((s) => s.id === feel)?.label ?? feel, feel });
     const { seq } = getEngine();
     seq.setParts(song.parts);
-    set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "—" });
+    set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "\u2014" });
     void cur;
   },
 
@@ -135,8 +152,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   toggleStart: () => {
-    const { ctx, seq, track } = getEngine();
+    const { ctx, seq, track, sf } = getEngine();
     if (ctx.state === "suspended") void ctx.resume();
+    void sf.preload();
 
     if (get().playing) {
       seq.stop();
@@ -157,12 +175,12 @@ export const useApp = create<AppState>((set, get) => ({
   nextPart: () => {
     const { seq } = getEngine();
     seq.nextPart();
-    set({ partName: seq.currentPart?.name ?? "—" });
+    set({ partName: seq.currentPart?.name ?? "\u2014" });
   },
   restart: () => {
     const { seq } = getEngine();
     seq.restart();
-    set({ partName: seq.currentPart?.name ?? "—" });
+    set({ partName: seq.currentPart?.name ?? "\u2014" });
   },
   crash: () => getEngine().seq.queueCrash(),
 
