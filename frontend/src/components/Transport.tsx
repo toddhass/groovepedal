@@ -52,19 +52,12 @@ export function Transport() {
         <div className="sliders" style={{ marginTop: "1rem" }}>
           <label className="sl">
             Tempo
-            <input
-              type="range" min={40} max={240} value={bpm}
-              onPointerDown={() => useApp.getState().toggleStart && undefined}
-              onChange={(e) => setBpm(Number(e.target.value))}
-            />
+            <input type="range" min={40} max={240} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
             <span>{bpm}</span>
           </label>
           <label className="sl">
             Volume
-            <input
-              type="range" min={0} max={100} value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
-            />
+            <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
             <span>{volume}</span>
           </label>
         </div>

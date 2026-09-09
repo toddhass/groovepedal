@@ -3,6 +3,7 @@ import { Synth } from "../audio/synth";
 import { Sequencer } from "../audio/sequencer";
 import { PracticeTrack } from "../audio/practiceTrack";
 import { SoundFontKit } from "../audio/soundfontKit";
+import { createAudioContext, isIOS, unlockAudio } from "../audio/unlock";
 import { searchAppleMusic, hitToSeed } from "../api";
 import { makeSong, Song, SEEDS } from "../data/songs";
 import { Feel, LABELS, STYLES } from "../data/grooves";
@@ -18,59 +19,58 @@ interface Engine {
 
 let engine: Engine | null = null;
 let searchTimer = 0;
+let lastToggle = 0;
 
 function getEngine(): Engine {
   if (engine) return engine;
-  const ctx = new AudioContext();
+  const ctx = createAudioContext();
+  unlockAudio(ctx);
 
   const drums = ctx.createGain();
-  drums.gain.value = 0.95;
-
-  const hp = ctx.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 35;
-  hp.Q.value = 0.7;
-
-  const presence = ctx.createBiquadFilter();
-  presence.type = "peaking";
-  presence.frequency.value = 180;
-  presence.Q.value = 0.7;
-  presence.gain.value = 2.5;
-
-  const airCut = ctx.createBiquadFilter();
-  airCut.type = "highshelf";
-  airCut.frequency.value = 6500;
-  airCut.gain.value = -3;
-
-  const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -18;
-  comp.knee.value = 18;
-  comp.ratio.value = 3.2;
-  comp.attack.value = 0.006;
-  comp.release.value = 0.16;
+  drums.gain.value = 1;
 
   const masterGain = ctx.createGain();
-  masterGain.gain.value = 0.9;
+  masterGain.gain.value = 1;
 
-  drums.connect(hp);
-  hp.connect(presence);
-  presence.connect(airCut);
-  airCut.connect(comp);
-  comp.connect(masterGain);
+  // Keep the graph short on iPhone — extra filters + compressor can stay silent
+  // until the context is fully running.
+  if (isIOS()) {
+    drums.connect(masterGain);
+  } else {
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 35;
+    const presence = ctx.createBiquadFilter();
+    presence.type = "peaking";
+    presence.frequency.value = 180;
+    presence.Q.value = 0.7;
+    presence.gain.value = 2.5;
+    const airCut = ctx.createBiquadFilter();
+    airCut.type = "highshelf";
+    airCut.frequency.value = 6500;
+    airCut.gain.value = -3;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.ratio.value = 3.2;
+    drums.connect(hp);
+    hp.connect(presence);
+    presence.connect(airCut);
+    airCut.connect(comp);
+    comp.connect(masterGain);
+  }
   masterGain.connect(ctx.destination);
 
   const sf = new SoundFontKit(ctx, drums);
   const synth = new Synth(ctx, drums);
-  const rawTrig = synth.trig.bind(synth);
-  synth.trig = (voice, t, v) => {
-    if (sf.hasDrum(voice) && sf.playDrum(voice, t, v)) return;
-    rawTrig(voice, t, v);
-  };
-  const rawCrash = synth.crash.bind(synth);
-  synth.crash = (t, v) => {
-    if (sf.hasDrum("crash") && sf.playDrum("crash", t, v)) return;
-    rawCrash(t, v);
-  };
+
+  if (!isIOS()) {
+    const rawTrig = synth.trig.bind(synth);
+    synth.trig = (voice, t, v) => {
+      if (sf.hasDrum(voice) && sf.playDrum(voice, t, v)) return;
+      rawTrig(voice, t, v);
+    };
+    void sf.preload();
+  }
 
   const seq = new Sequencer(synth, ctx);
   const track = new PracticeTrack(ctx, masterGain);
@@ -111,7 +111,7 @@ export const useApp = create<AppState>((set, get) => ({
   playing: false,
   song: initialSong,
   bpm: initialSong.bpm,
-  volume: 90,
+  volume: 100,
   step: 0,
   partName: initialSong.parts[0]?.name ?? "\u2014",
   library: seedLibrary,
@@ -130,9 +130,7 @@ export const useApp = create<AppState>((set, get) => ({
     const local = SEEDS.filter((s) =>
       (s.title + " " + s.artist).toLowerCase().includes(t.toLowerCase())
     ).map(makeSong);
-    set({ library: local.length ? local : seedLibrary.filter((s) =>
-      (s.title + " " + s.artist).toLowerCase().includes(t.toLowerCase())
-    ) });
+    set({ library: local });
     searchTimer = window.setTimeout(() => {
       void searchAppleMusic(t)
         .then((hits) => {
@@ -155,7 +153,7 @@ export const useApp = create<AppState>((set, get) => ({
     const song = fromLib ?? (seed ? makeSong(seed) : null);
     if (!song) return;
     const { seq, ctx } = getEngine();
-    if (ctx.state === "suspended") void ctx.resume();
+    unlockAudio(ctx);
     seq.setParts(song.parts);
     set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "\u2014" });
   },
@@ -168,7 +166,8 @@ export const useApp = create<AppState>((set, get) => ({
       artist: cur.id.startsWith("it-") ? cur.artist : (STYLES.find((s) => s.id === feel)?.label ?? feel),
       feel,
     });
-    const { seq } = getEngine();
+    const { seq, ctx } = getEngine();
+    unlockAudio(ctx);
     seq.setParts(song.parts);
     set({ song, bpm: song.bpm, partName: song.parts[0]?.name ?? "\u2014" });
   },
@@ -181,15 +180,17 @@ export const useApp = create<AppState>((set, get) => ({
 
   setVolume: (v) => {
     const { masterGain, ctx } = getEngine();
-    const lin = Math.max(0, Math.min(1, v / 100));
-    masterGain.gain.setTargetAtTime(lin * lin * 1.1 + lin * 0.2, ctx.currentTime, 0.02);
+    masterGain.gain.setTargetAtTime(Math.max(0, Math.min(1, v / 100)), ctx.currentTime, 0.02);
     set({ volume: v });
   },
 
   toggleStart: () => {
-    const { ctx, seq, track, sf, synth } = getEngine();
-    if (ctx.state === "suspended") void ctx.resume();
-    void sf.preload();
+    const now = Date.now();
+    if (now - lastToggle < 400) return;
+    lastToggle = now;
+
+    const { ctx, seq, track, synth } = getEngine();
+    unlockAudio(ctx);
 
     if (get().playing) {
       seq.stop();
@@ -202,7 +203,10 @@ export const useApp = create<AppState>((set, get) => ({
     seq.setParts(get().song.parts);
     seq.onNext = (step, part) => set({ step, partName: part.name });
     seq.start();
-    try { synth.trig("kick", ctx.currentTime, 1); } catch { /* unlock click */ }
+    try {
+      synth.trig("kick", ctx.currentTime + 0.02, 1);
+      synth.trig("hat", ctx.currentTime + 0.02, 0.8);
+    } catch { /* noop */ }
     track.play(ctx.currentTime + 0.05);
     set({ playing: true });
   },
