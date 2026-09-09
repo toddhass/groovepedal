@@ -1,9 +1,3 @@
-/**
- * Multi-sampled SoundFont playback via WebAudioFont (SF2 → wavetable).
- * JCLive / FluidR3 GM percussion + a few band instruments.
- * Falls through to the oscillator Synth until a preset is decoded.
- */
-
 export type SfDrum =
   | "kick" | "snare" | "clap" | "rim" | "hat" | "openHat" | "pedalHat"
   | "ride" | "crash" | "splash" | "china"
@@ -45,12 +39,11 @@ const TONES: Record<string, PresetSpec> = {
   trumpet:  { file: "0560_FluidR3_GM_sf2_file.js", global: "_tone_0560_FluidR3_GM_sf2_file", pitch: 67, dur: 0.45, gain: 0.26 },
 };
 
+type Zone = { buffer?: AudioBuffer; sample?: unknown };
+type Preset = { zones?: Zone[] };
+
 type WafPlayer = {
-  loader: {
-    startLoad: (ctx: AudioContext, url: string, name: string) => void;
-    waitLoad: (cb: () => void) => void;
-    decodeAfterLoading: (ctx: BaseAudioContext, name: string) => void;
-  };
+  loader: { decodeAfterLoading: (ctx: BaseAudioContext, name: string) => void };
   queueWaveTable: (
     ctx: BaseAudioContext,
     dest: AudioNode,
@@ -65,10 +58,7 @@ type WafPlayer = {
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(`script[data-waf="${src}"]`);
-    if (existing) {
-      resolve();
-      return;
-    }
+    if (existing) { resolve(); return; }
     const s = document.createElement("script");
     s.src = src;
     s.async = true;
@@ -79,8 +69,13 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
-function globalPreset(name: string): unknown {
-  return (window as unknown as Record<string, unknown>)[name];
+function globalPreset(name: string): Preset | undefined {
+  return (window as unknown as Record<string, Preset | undefined>)[name];
+}
+
+function presetHasAudio(name: string): boolean {
+  const p = globalPreset(name);
+  return !!(p?.zones && p.zones.some((z) => z.buffer || z.sample));
 }
 
 export class SoundFontKit {
@@ -100,24 +95,23 @@ export class SoundFontKit {
     this.status = "loading";
     try {
       await loadScript(PLAYER);
-      const W = window as unknown as { WebAudioFontPlayer: new () => WafPlayer };
+      const W = window as unknown as { WebAudioFontPlayer?: new () => WafPlayer };
+      if (!W.WebAudioFontPlayer) throw new Error("WebAudioFontPlayer missing");
       this.player = new W.WebAudioFontPlayer();
-
       const first = ["kick", "snare", "hat", "openHat", "crash", "ride"] as SfDrum[];
       await this.loadSpecs(first.map((k) => DRUMS[k]));
-      this.status = "ready";
-
+      this.status = this.ready.size ? "ready" : "error";
       const rest = (Object.keys(DRUMS) as SfDrum[]).filter((k) => !first.includes(k));
       void this.loadSpecs(rest.map((k) => DRUMS[k]));
       void this.loadSpecs(Object.values(TONES));
     } catch (err) {
       console.warn("SoundFont preload failed", err);
       this.status = "error";
+      this.player = null;
     }
   }
 
   private async loadSpecs(specs: PresetSpec[]): Promise<void> {
-    if (!this.player) return;
     await Promise.all(specs.map((spec) => this.loadOne(spec)));
   }
 
@@ -125,10 +119,9 @@ export class SoundFontKit {
     if (this.ready.has(spec.global)) return;
     try {
       await loadScript(DATA + spec.file);
-      const preset = globalPreset(spec.global);
-      if (!preset || !this.player) return;
+      if (!this.player || !globalPreset(spec.global)) return;
       this.player.loader.decodeAfterLoading(this.ctx, spec.global);
-      this.ready.add(spec.global);
+      if (presetHasAudio(spec.global)) this.ready.add(spec.global);
     } catch (err) {
       console.warn("SoundFont missing", spec.file, err);
     }
@@ -136,12 +129,12 @@ export class SoundFontKit {
 
   hasDrum(voice: string): boolean {
     const spec = DRUMS[voice as SfDrum];
-    return !!(spec && this.ready.has(spec.global) && this.player);
+    return !!(spec && this.player && this.ready.has(spec.global) && presetHasAudio(spec.global));
   }
 
   playDrum(voice: string, when: number, velocity: number): boolean {
+    if (!this.hasDrum(voice) || !this.player) return false;
     const spec = DRUMS[voice as SfDrum];
-    if (!spec || !this.player) return false;
     const preset = globalPreset(spec.global);
     if (!preset) return false;
     const vol = Math.max(0.05, Math.min(1, velocity)) * spec.gain;
@@ -155,7 +148,7 @@ export class SoundFontKit {
 
   playTone(name: string, when: number, velocity: number, freqHz: number): boolean {
     const spec = TONES[name];
-    if (!spec || !this.player) return false;
+    if (!spec || !this.player || !this.ready.has(spec.global)) return false;
     const preset = globalPreset(spec.global);
     if (!preset) return false;
     const midi = Math.round(69 + 12 * Math.log2(Math.max(20, freqHz) / 440));
