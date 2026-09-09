@@ -17,15 +17,22 @@ export function Transport() {
 
   return (
     <>
-      <button className={`start${playing ? " stop" : ""}`} type="button" onClick={toggleStart}>
+      <button
+        className={`start${playing ? " stop" : ""}`}
+        type="button"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          toggleStart();
+        }}
+      >
         {playing ? "Stop" : "Start"}
       </button>
 
       <div className="grid">
-        <button className="pedal fill" type="button" onClick={fill}>Fill</button>
-        <button className="pedal next" type="button" onClick={nextPart}>Next part</button>
-        <button className="pedal restart" type="button" onClick={restart}>Restart</button>
-        <button className="pedal crash" type="button" onClick={crash}>Crash</button>
+        <button className="pedal fill" type="button" onPointerDown={fill}>Fill</button>
+        <button className="pedal next" type="button" onPointerDown={nextPart}>Next part</button>
+        <button className="pedal restart" type="button" onPointerDown={restart}>Restart</button>
+        <button className="pedal crash" type="button" onPointerDown={crash}>Crash</button>
       </div>
 
       <section className="card">
@@ -36,7 +43,7 @@ export function Transport() {
               key={s.id}
               type="button"
               className={`chip${song.feel === s.id ? " on" : ""}`}
-              onClick={() => selectFeel(s.id)}
+              onPointerDown={() => selectFeel(s.id)}
             >
               {s.label}
             </button>
@@ -47,6 +54,7 @@ export function Transport() {
             Tempo
             <input
               type="range" min={40} max={240} value={bpm}
+              onPointerDown={() => useApp.getState().toggleStart && undefined}
               onChange={(e) => setBpm(Number(e.target.value))}
             />
             <span>{bpm}</span>
